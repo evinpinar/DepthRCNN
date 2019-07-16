@@ -167,7 +167,7 @@ class Config(object):
 
     NUM_PARAMETER_CHANNELS = 0
     
-    def __init__(self, options):
+    def __init__(self):
         """Set values of computed attributes."""
         # Effective batch size
         if self.GPU_COUNT > 0:
@@ -196,16 +196,9 @@ class Config(object):
               int(math.ceil(self.IMAGE_SHAPE[1] / stride))]
              for stride in self.BACKBONE_STRIDES])
 
-        self.dataFolder = options.anchorFolder
-        
-        self.OCCLUSION = 'occlusion' in options.dataset
-        
-        self.loadAnchorPlanes(options.anchorType)
+
         self.PREDICT_DEPTH = True
         self.PREDICT_BOUNDARY = False
-        self.PREDICT_NORMAL_NP = 'normal_np' in options.suffix
-        
-        self.BILINEAR_UPSAMPLING = 'bilinear' in options.suffix
         self.FITTING_TYPE = 0
         return
     
@@ -343,7 +336,7 @@ class Config(object):
         vrange = (self.VRANGE_UNIT * self.METADATA[5] - self.METADATA[3]) / self.METADATA[1]
         ranges = torch.stack([urange, self.ONES, -vrange], dim=-1)
         return ranges
-        
+
 
 class PlaneConfig(Config):
     """Configuration for training on ScanNet.

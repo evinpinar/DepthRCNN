@@ -1,0 +1,27 @@
+
+# OS junk files
+*.DS_Store
+
+#Checkpoints
+checkpoints/
+checkpoint/
+
+#Out files
+*.out
+
+#Byte-compiled files
+__pycache__/
+**/_pycache__/
+
+#Jupyter 
+.ipynb_checkpoints
+
+#Data folders
+example_images
+Example_prediction_images
+
+#roialign
+nms/_ext/nms/_nms.so
+nms/src/cuda/nms_kernel.cu.o
+roialign/roi_align/_ext/crop_and_resize/_crop_and_resize.so
+roialign/roi_align/src/cuda/crop_and_resize_kernel.cu.o
