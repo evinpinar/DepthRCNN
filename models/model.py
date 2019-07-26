@@ -18,6 +18,7 @@ import torch.nn.functional as F
 import torch.optim as optim
 import torch.utils.data
 from torch.autograd import Variable
+import logging
 
 import utils
 import visualize
@@ -121,6 +122,21 @@ class SamePad2d(nn.Module):
         return self.__class__.__name__
 
 
+def compute_backbone_shapes(config, image_shape):
+    """Computes the width and height of each stage of the backbone network.
+
+    Returns:
+        [N, (height, width)]. Where N is the number of stages
+    """
+    if callable(config.BACKBONE):
+        return config.COMPUTE_BACKBONE_SHAPE(image_shape)
+
+    # Currently supports ResNet only
+    assert config.BACKBONE in ["resnet50", "resnet101"]
+    return np.array(
+        [[int(math.ceil(image_shape[0] / stride)),
+          int(math.ceil(image_shape[1] / stride))]
+         for stride in config.BACKBONE_STRIDES])
 ############################################################
 #  FPN Graph
 ############################################################
@@ -1377,7 +1393,10 @@ def compute_losses(config, rpn_match, rpn_bbox, rpn_class_logits, rpn_pred_bbox,
     mrcnn_class_loss = compute_mrcnn_class_loss(target_class_ids, mrcnn_class_logits)
     mrcnn_bbox_loss = compute_mrcnn_bbox_loss(target_deltas, target_class_ids, mrcnn_bbox)
     mrcnn_mask_loss = compute_mrcnn_mask_loss(config, target_mask, target_class_ids, mrcnn_mask)
-    depth_loss = compute_depth_loss(target_depth, pred_depth)
+
+    depth_loss = torch.tensor([0], dtype=torch.float32)
+    if config.PREDICT_DEPTH:
+        depth_loss = compute_depth_loss(target_depth, pred_depth)
     return [rpn_class_loss, rpn_bbox_loss, mrcnn_class_loss, mrcnn_bbox_loss, mrcnn_mask_loss, depth_loss]
 
 
@@ -1409,16 +1428,16 @@ def load_image_gt(dataset, config, image_id, augment=False,
     """
     # Load image and mask
     image = dataset.load_image(image_id)
-    depth = dataset.load_depth(image_id)
     mask, class_ids = dataset.load_mask(image_id)
     shape = image.shape
-    image = cv2.resize(image, (depth.shape[1], depth.shape[0]))
-    image, window, scale, padding = utils.resize_image(
+    #image = cv2.resize(image, (depth.shape[1], depth.shape[0]))
+    image, window, scale, padding, crop = utils.resize_image(
         image,
         min_dim=config.IMAGE_MIN_DIM,
+        min_scale=config.IMAGE_MIN_SCALE,
         max_dim=config.IMAGE_MAX_DIM,
-        padding=config.IMAGE_PADDING)
-    mask = utils.resize_mask(mask, scale, padding)
+        mode=config.IMAGE_RESIZE_MODE)
+    mask = utils.resize_mask(mask, scale, padding, crop)
     # depth = utils.resize_mask(depth, scale, padding)
 
     # Random horizontal flips.
@@ -1426,8 +1445,12 @@ def load_image_gt(dataset, config, image_id, augment=False,
         if random.randint(0, 1):
             image = np.fliplr(image)
             mask = np.fliplr(mask)
-            mask = np.fliplr(depth)
 
+    # Note that some boxes might be all zeros if the corresponding mask got cropped out.
+    # and here is to filter them out
+    _idx = np.sum(mask, axis=(0, 1)) > 0
+    mask = mask[:, :, _idx]
+    class_ids = class_ids[_idx]
     # Bounding boxes. Note that some boxes might be all zeros
     # if the corresponding mask got cropped out.
     # bbox: [num_instances, (y1, x1, y2, x2)]
@@ -1447,7 +1470,7 @@ def load_image_gt(dataset, config, image_id, augment=False,
     # Image meta data
     image_meta = compose_image_meta(image_id, shape, window, active_class_ids)
 
-    return image, image_meta, class_ids, bbox, mask, depth
+    return image, image_meta, class_ids, bbox, mask
 
 def build_rpn_targets(image_shape, anchors, gt_class_ids, gt_boxes, config):
     """Given the anchors and GT boxes, compute overlaps and identify positive
@@ -1561,6 +1584,7 @@ def build_rpn_targets(image_shape, anchors, gt_class_ids, gt_boxes, config):
 
 
 class Dataset(torch.utils.data.Dataset):
+
     def __init__(self, dataset, config, augment=True):
         """A generator that returns images and corresponding target class ids,
             bounding box deltas, and masks.
@@ -1600,16 +1624,18 @@ class Dataset(torch.utils.data.Dataset):
 
         # Anchors
         # [anchor_count, (y1, x1, y2, x2)]
+
+        backbone_shapes = compute_backbone_shapes(config, config.IMAGE_SHAPE)
         self.anchors = utils.generate_pyramid_anchors(config.RPN_ANCHOR_SCALES,
                                                  config.RPN_ANCHOR_RATIOS,
-                                                 config.BACKBONE_SHAPES,
+                                                 backbone_shapes,
                                                  config.BACKBONE_STRIDES,
                                                  config.RPN_ANCHOR_STRIDE)
 
     def __getitem__(self, image_index):
         # Get GT bounding boxes and masks for image.
         image_id = self.image_ids[image_index]
-        image, image_metas, gt_class_ids, gt_boxes, gt_masks, gt_depth = \
+        image, image_metas, gt_class_ids, gt_boxes, gt_masks = \
             load_image_gt(self.dataset, self.config, image_id, augment=self.augment,
                           use_mini_mask=self.config.USE_MINI_MASK)
 
@@ -1634,11 +1660,9 @@ class Dataset(torch.utils.data.Dataset):
         # Add to batch
         rpn_match = rpn_match[:, np.newaxis]
         images = mold_image(image.astype(np.float32), self.config)
-        gt_depth = np.concatenate([np.zeros((80, 640)), gt_depth, np.zeros((80, 640))], axis=0)
 
         # Convert
         images = torch.from_numpy(images.transpose(2, 0, 1)).float()
-        gt_depth = gt_depth.astype(np.float32)
         image_metas = torch.from_numpy(image_metas)
         rpn_match = torch.from_numpy(rpn_match)
         rpn_bbox = torch.from_numpy(rpn_bbox).float()
@@ -1646,12 +1670,166 @@ class Dataset(torch.utils.data.Dataset):
         gt_boxes = torch.from_numpy(gt_boxes).float()
         gt_masks = torch.from_numpy(gt_masks.astype(int).transpose(2, 0, 1)).float()
 
-        return images, image_metas, rpn_match, rpn_bbox, gt_class_ids, gt_boxes, gt_masks, gt_depth
+        return images, image_metas, rpn_match, rpn_bbox, gt_class_ids, gt_boxes, gt_masks
 
 
     def __len__(self):
         return self.image_ids.shape[0]
 
+def data_generator(dataset, config, shuffle=True, augment=False, augmentation=None,
+                   random_rois=0, batch_size=1, detection_targets=False,
+                   no_augmentation_sources=None):
+    """A generator that returns images and corresponding target class ids,
+    bounding box deltas, and masks.
+    dataset: The Dataset object to pick data from
+    config: The model config object
+    shuffle: If True, shuffles the samples before every epoch
+    augment: (deprecated. Use augmentation instead). If true, apply random
+        image augmentation. Currently, only horizontal flipping is offered.
+    augmentation: Optional. An imgaug (https://github.com/aleju/imgaug) augmentation.
+        For example, passing imgaug.augmenters.Fliplr(0.5) flips images
+        right/left 50% of the time.
+    random_rois: If > 0 then generate proposals to be used to train the
+                 network classifier and mask heads. Useful if training
+                 the Mask RCNN part without the RPN.
+    batch_size: How many images to return in each call
+    detection_targets: If True, generate detection targets (class IDs, bbox
+        deltas, and masks). Typically for debugging or visualizations because
+        in trainig detection targets are generated by DetectionTargetLayer.
+    no_augmentation_sources: Optional. List of sources to exclude for
+        augmentation. A source is string that identifies a dataset and is
+        defined in the Dataset class.
+    Returns a Python generator. Upon calling next() on it, the
+    generator returns two lists, inputs and outputs. The contents
+    of the lists differs depending on the received arguments:
+    inputs list:
+    - images: [batch, H, W, C]
+    - image_meta: [batch, (meta data)] Image details. See compose_image_meta()
+    - rpn_match: [batch, N] Integer (1=positive anchor, -1=negative, 0=neutral)
+    - rpn_bbox: [batch, N, (dy, dx, log(dh), log(dw))] Anchor bbox deltas.
+    - gt_class_ids: [batch, MAX_GT_INSTANCES] Integer class IDs
+    - gt_boxes: [batch, MAX_GT_INSTANCES, (y1, x1, y2, x2)]
+    - gt_masks: [batch, height, width, MAX_GT_INSTANCES]. The height and width
+                are those of the image unless use_mini_mask is True, in which
+                case they are defined in MINI_MASK_SHAPE.
+    outputs list: Usually empty in regular training. But if detection_targets
+        is True then the outputs list contains target class_ids, bbox deltas,
+        and masks.
+    """
+    b = 0  # batch item index
+    image_index = -1
+    image_ids = np.copy(dataset.image_ids)
+    error_count = 0
+    no_augmentation_sources = no_augmentation_sources or []
+
+    # Anchors
+    # [anchor_count, (y1, x1, y2, x2)]
+    backbone_shapes = compute_backbone_shapes(config, config.IMAGE_SHAPE)
+    anchors = utils.generate_pyramid_anchors(config.RPN_ANCHOR_SCALES,
+                                             config.RPN_ANCHOR_RATIOS,
+                                             backbone_shapes,
+                                             config.BACKBONE_STRIDES,
+                                             config.RPN_ANCHOR_STRIDE)
+
+    # Keras requires a generator to run indefinitely.
+    while True:
+        try:
+            # Increment index to pick next image. Shuffle if at the start of an epoch.
+            image_index = (image_index + 1) % len(image_ids)
+            if shuffle and image_index == 0:
+                np.random.shuffle(image_ids)
+
+            # Get GT bounding boxes and masks for image.
+            image_id = image_ids[image_index]
+
+            # If the image source is not to be augmented pass None as augmentation
+            if dataset.image_info[image_id]['source'] in no_augmentation_sources:
+                image, image_meta, gt_class_ids, gt_boxes, gt_masks = \
+                load_image_gt(dataset, config, image_id, augment=augment,
+
+                              use_mini_mask=config.USE_MINI_MASK)
+            else:
+                image, image_meta, gt_class_ids, gt_boxes, gt_masks = \
+                    load_image_gt(dataset, config, image_id, augment=augment,
+
+                                use_mini_mask=config.USE_MINI_MASK)
+
+            # Skip images that have no instances. This can happen in cases
+            # where we train on a subset of classes and the image doesn't
+            # have any of the classes we care about.
+            if not np.any(gt_class_ids > 0):
+                continue
+
+            # RPN Targets
+            rpn_match, rpn_bbox = build_rpn_targets(image.shape, anchors,
+                                                    gt_class_ids, gt_boxes, config)
+
+            # Init batch arrays
+            if b == 0:
+                batch_image_meta = np.zeros(
+                    (batch_size,) + image_meta.shape, dtype=image_meta.dtype)
+                batch_rpn_match = np.zeros(
+                    [batch_size, anchors.shape[0], 1], dtype=rpn_match.dtype)
+                batch_rpn_bbox = np.zeros(
+                    [batch_size, config.RPN_TRAIN_ANCHORS_PER_IMAGE, 4], dtype=rpn_bbox.dtype)
+                batch_images = np.zeros(
+                    (batch_size,) + image.shape, dtype=np.float32)
+                batch_gt_class_ids = np.zeros(
+                    (batch_size, config.MAX_GT_INSTANCES), dtype=np.int32)
+                batch_gt_boxes = np.zeros(
+                    (batch_size, config.MAX_GT_INSTANCES, 4), dtype=np.int32)
+                batch_gt_masks = np.zeros(
+                    (batch_size, gt_masks.shape[0], gt_masks.shape[1],
+                     config.MAX_GT_INSTANCES), dtype=gt_masks.dtype)
+
+            # If more instances than fits in the array, sub-sample from them.
+            if gt_boxes.shape[0] > config.MAX_GT_INSTANCES:
+                ids = np.random.choice(
+                    np.arange(gt_boxes.shape[0]), config.MAX_GT_INSTANCES, replace=False)
+                gt_class_ids = gt_class_ids[ids]
+                gt_boxes = gt_boxes[ids]
+                gt_masks = gt_masks[:, :, ids]
+
+            # Add to batch
+            batch_image_meta[b] = image_meta
+            batch_rpn_match[b] = rpn_match[:, np.newaxis]
+            batch_rpn_bbox[b] = rpn_bbox
+            batch_images[b] = mold_image(image.astype(np.float32), config)
+            batch_gt_class_ids[b, :gt_class_ids.shape[0]] = gt_class_ids
+            batch_gt_boxes[b, :gt_boxes.shape[0]] = gt_boxes
+            batch_gt_masks[b, :, :, :gt_masks.shape[-1]] = gt_masks
+            b += 1
+
+            # Batch full?
+            if b >= batch_size:
+
+                depth = np.zeros(1)
+
+                yield [torch.from_numpy(batch_images.transpose(0, 3, 1, 2)),
+                       torch.from_numpy(batch_image_meta), torch.from_numpy(batch_rpn_match),
+                       torch.from_numpy(batch_rpn_bbox.astype(np.float32)), torch.from_numpy(batch_gt_class_ids),
+                       torch.from_numpy(batch_gt_boxes.astype(np.float32)),
+                       torch.from_numpy(batch_gt_masks.astype(np.float32).transpose(0, 3, 1, 2)),
+                       torch.from_numpy(depth)]
+
+                #inputs = [batch_images, batch_image_meta, batch_rpn_match, batch_rpn_bbox,
+                #          batch_gt_class_ids, batch_gt_boxes, batch_gt_masks]
+                #outputs = []
+
+
+                #yield inputs, outputs
+
+                # start a new batch
+                b = 0
+        except (GeneratorExit, KeyboardInterrupt):
+            raise
+        except:
+            # Log it and skip the image
+            logging.exception("Error processing image {}".format(
+                dataset.image_info[image_id]))
+            error_count += 1
+            if error_count > 5:
+                raise
 
 ############################################################
 #  MaskRCNN Class for Depth
@@ -1700,9 +1878,10 @@ class MaskRCNN(nn.Module):
         self.fpn = FPN(C1, C2, C3, C4, C5, out_channels=256, bilinear_upsampling=self.config.BILINEAR_UPSAMPLING)
 
         ## Generate Anchors
+        backbone_shapes = compute_backbone_shapes(config, config.IMAGE_SHAPE)
         self.anchors = Variable(torch.from_numpy(utils.generate_pyramid_anchors(config.RPN_ANCHOR_SCALES,
                                                                                 config.RPN_ANCHOR_RATIOS,
-                                                                                config.BACKBONE_SHAPES,
+                                                                                backbone_shapes,
                                                                                 config.BACKBONE_STRIDES,
                                                                                 config.RPN_ANCHOR_STRIDE)).float(),
                                 requires_grad=False)
@@ -2059,7 +2238,7 @@ class MaskRCNN(nn.Module):
 
             return [rpn_class_logits, rpn_bbox, target_class_ids, mrcnn_class_logits, target_deltas, mrcnn_bbox, target_mask, mrcnn_mask, rois, depth_np]
 
-    def train_model(self, train_dataset, val_dataset, learning_rate, epochs, layers, depth_weight=1):
+    def train_model(self, train_dataset, val_dataset, learning_rate, epochs, layers, depth_weight=1, optim_choice="SGD"):
         """Train the model.
         train_dataset, val_dataset: Training and validation Dataset objects.
         learning_rate: The learning rate to train with
@@ -2107,10 +2286,18 @@ class MaskRCNN(nn.Module):
         # Skip gamma and beta weights of batch normalization layers.
         trainables_wo_bn = [param for name, param in self.named_parameters() if param.requires_grad and not 'bn' in name]
         trainables_only_bn = [param for name, param in self.named_parameters() if param.requires_grad and 'bn' in name]
-        optimizer = optim.SGD([
-            {'params': trainables_wo_bn, 'weight_decay': self.config.WEIGHT_DECAY},
-            {'params': trainables_only_bn}
-        ], lr=learning_rate, momentum=self.config.LEARNING_MOMENTUM)
+
+        if optim_choice == "ADAM":
+            optimizer = optim.Adam([
+                {'params': trainables_wo_bn, 'weight_decay': self.config.WEIGHT_DECAY},
+                {'params': trainables_only_bn}
+            ], lr=learning_rate)
+        else:
+            optimizer = optim.SGD([
+                {'params': trainables_wo_bn, 'weight_decay': self.config.WEIGHT_DECAY},
+                {'params': trainables_only_bn}
+            ], lr=learning_rate, momentum=self.config.LEARNING_MOMENTUM)
+
 
         for epoch in range(self.epoch+1, epochs+1):
             log("Epoch {}/{}.".format(epoch, epochs))
@@ -2157,6 +2344,113 @@ class MaskRCNN(nn.Module):
 
         self.epoch = epochs
 
+    def train_model2(self, train_dataset, val_dataset, learning_rate, epochs, layers, depth_weight=1,
+                    optim_choice="SGD"):
+        """Train the model.
+        train_dataset, val_dataset: Training and validation Dataset objects.
+        learning_rate: The learning rate to train with
+        epochs: Number of training epochs. Note that previous training epochs
+                are considered to be done alreay, so this actually determines
+                the epochs to train in total rather than in this particaular
+                call.
+        layers: Allows selecting wich layers to train. It can be:
+            - A regular expression to match layer names to train
+            - One of these predefined values:
+              heaads: The RPN, classifier and mask heads of the network
+              all: All the layers
+              3+: Train Resnet stage 3 and up
+              4+: Train Resnet stage 4 and up
+              5+: Train Resnet stage 5 and up
+        """
+
+        # Pre-defined layer regular expressions
+        layer_regex = {
+            # all layers but the backbone
+            "heads": r"(fpn.P5\_.*)|(fpn.P4\_.*)|(fpn.P3\_.*)|(fpn.P2\_.*)|(rpn.*)|(classifier.*)|(mask.*)|(depth.*)",
+            # From a specific Resnet stage and up
+            "3+": r"(fpn.C3.*)|(fpn.C4.*)|(fpn.C5.*)|(fpn.P5\_.*)|(fpn.P4\_.*)|(fpn.P3\_.*)|(fpn.P2\_.*)|(rpn.*)|(classifier.*)|(mask.*)|(depth.*)",
+            "4+": r"(fpn.C4.*)|(fpn.C5.*)|(fpn.P5\_.*)|(fpn.P4\_.*)|(fpn.P3\_.*)|(fpn.P2\_.*)|(rpn.*)|(classifier.*)|(mask.*)|(depth.*)",
+            "5+": r"(fpn.C5.*)|(fpn.P5\_.*)|(fpn.P4\_.*)|(fpn.P3\_.*)|(fpn.P2\_.*)|(rpn.*)|(classifier.*)|(mask.*)|(depth.*)",
+            # All layers
+            "all": ".*",
+        }
+        if layers in layer_regex.keys():
+            layers = layer_regex[layers]
+
+        # Data generators
+        train_generator = data_generator(train_dataset, self.config, shuffle=True, augment=True, batch_size=1)
+        val_generator = data_generator(val_dataset, self.config, shuffle=True, augment=True, batch_size=1)
+
+        # Train
+        log("\nStarting at epoch {}. LR={}\n".format(self.epoch + 1, learning_rate))
+        log("Checkpoint Path: {}".format(self.checkpoint_path))
+        self.set_trainable(layers)
+
+        # Optimizer object
+        # Add L2 Regularization
+        # Skip gamma and beta weights of batch normalization layers.
+        trainables_wo_bn = [param for name, param in self.named_parameters() if
+                            param.requires_grad and not 'bn' in name]
+        trainables_only_bn = [param for name, param in self.named_parameters() if param.requires_grad and 'bn' in name]
+
+        if optim_choice == "ADAM":
+            optimizer = optim.Adam([
+                {'params': trainables_wo_bn, 'weight_decay': self.config.WEIGHT_DECAY},
+                {'params': trainables_only_bn}
+            ], lr=learning_rate)
+        else:
+            optimizer = optim.SGD([
+                {'params': trainables_wo_bn, 'weight_decay': self.config.WEIGHT_DECAY},
+                {'params': trainables_only_bn}
+            ], lr=learning_rate, momentum=self.config.LEARNING_MOMENTUM)
+
+        for epoch in range(self.epoch + 1, epochs + 1):
+            log("Epoch {}/{}.".format(epoch, epochs))
+
+            # Training
+            loss, loss_rpn_class, loss_rpn_bbox, loss_mrcnn_class, loss_mrcnn_bbox, loss_mrcnn_mask, loss_depth = self.train_epoch(
+                train_generator, optimizer, self.config.STEPS_PER_EPOCH, depth_weight)
+
+            # Validation
+            val_loss, val_loss_rpn_class, val_loss_rpn_bbox, val_loss_mrcnn_class, val_loss_mrcnn_bbox, val_loss_mrcnn_mask, val_loss_depth = self.valid_epoch(
+                val_generator, self.config.VALIDATION_STEPS, depth_weight)
+
+            # Statistics
+            self.loss_history.append(
+                [loss, loss_rpn_class, loss_rpn_bbox, loss_mrcnn_class, loss_mrcnn_bbox, loss_mrcnn_mask, loss_depth])
+            self.val_loss_history.append(
+                [val_loss, val_loss_rpn_class, val_loss_rpn_bbox, val_loss_mrcnn_class, val_loss_mrcnn_bbox,
+                 val_loss_mrcnn_mask, val_loss_depth])
+            visualize.plot_loss(self.loss_history, self.val_loss_history, save=True, log_dir=self.log_dir)
+
+            if not os.path.exists(self.log_dir):
+                os.makedirs(self.log_dir)
+
+            if os.path.exists(self.log_dir):
+                writer = SummaryWriter(self.log_dir + '/log/')
+
+            writer.add_scalar('Train/Loss', loss, epoch)
+            writer.add_scalar('Train/RPN_Class', loss_rpn_class, epoch)
+            writer.add_scalar('Train/RPN_BBOX', loss_rpn_bbox, epoch)
+            writer.add_scalar('Train/MRCNN_Class', loss_mrcnn_class, epoch)
+            writer.add_scalar('Train/MRCNN_BBOX', loss_mrcnn_bbox, epoch)
+            writer.add_scalar('Train/MRCNN_Mask', loss_mrcnn_mask, epoch)
+            writer.add_scalar('Train/Depth', loss_depth, epoch)
+
+            writer.add_scalar('Val/Loss', val_loss, epoch)
+            writer.add_scalar('Val/RPN_Class', val_loss_rpn_class, epoch)
+            writer.add_scalar('Val/RPN_BBOX', val_loss_rpn_bbox, epoch)
+            writer.add_scalar('Val/MRCNN_Class', val_loss_mrcnn_class, epoch)
+            writer.add_scalar('Val/MRCNN_BBOX', val_loss_mrcnn_bbox, epoch)
+            writer.add_scalar('Val/MRCNN_Mask', val_loss_mrcnn_mask, epoch)
+            writer.add_scalar('Val/Depth', val_loss_depth, epoch)
+
+            # Save model
+            if epoch % 1 == 0:
+                torch.save(self.state_dict(), self.checkpoint_path.format(epoch))
+
+        self.epoch = epochs
+
     def train_epoch(self, datagenerator, optimizer, steps, depth_weight=1):
         batch_count = 0
         loss_sum = 0
@@ -2183,7 +2477,9 @@ class MaskRCNN(nn.Module):
             gt_depths = inputs[7]
 
             # image_metas as numpy array
-            image_metas = image_metas.numpy()
+            # image_metas = image_metas.numpy()
+
+            gt_masks=torch.FloatTensor(gt_masks)
 
             # Wrap in variables
             images = Variable(images)
@@ -2210,7 +2506,18 @@ class MaskRCNN(nn.Module):
 
             # Compute losses
             rpn_class_loss, rpn_bbox_loss, mrcnn_class_loss, mrcnn_bbox_loss, mrcnn_mask_loss, depth_loss = compute_losses(self.config, rpn_match, rpn_bbox, rpn_class_logits, rpn_pred_bbox, target_class_ids, mrcnn_class_logits, target_deltas, mrcnn_bbox, target_mask, mrcnn_mask, gt_depths, pred_depth)
+
+
+            if self.config.GPU_COUNT:
+                depth_loss = depth_loss.cuda()
+
+
             loss = rpn_class_loss + rpn_bbox_loss + mrcnn_class_loss + mrcnn_bbox_loss + mrcnn_mask_loss + depth_weight*depth_loss
+
+
+            # Added this due to a weird error.
+            # loss = Variable(loss, requires_grad=True)
+
 
             # Backpropagation
             loss.backward()
@@ -2221,7 +2528,7 @@ class MaskRCNN(nn.Module):
                 batch_count = 0
 
             # Progress
-            if step % 100 == 0:
+            if step % 25 == 0:
                 printProgressBar(step + 1, steps, prefix="\t{}/{}".format(step + 1, steps),
                                  suffix="Complete - loss: {:.5f} - rpn_class_loss: {:.5f} - rpn_bbox_loss: {:.5f} - mrcnn_class_loss: {:.5f} - mrcnn_bbox_loss: {:.5f} - mrcnn_mask_loss: {:.5f} - depth_loss: {:.5f}".format(
                                      loss.data.cpu().item(), rpn_class_loss.data.cpu().item(), rpn_bbox_loss.data.cpu().item(),
@@ -2267,7 +2574,9 @@ class MaskRCNN(nn.Module):
                 gt_depths = inputs[7]
 
                 # image_metas as numpy array
-                image_metas = image_metas.numpy()
+                # image_metas = image_metas.numpy()
+
+                gt_masks = torch.FloatTensor(gt_masks)
 
                 # Wrap in variables
                 images = Variable(images)
@@ -2290,7 +2599,8 @@ class MaskRCNN(nn.Module):
 
 
                 # Run object detection
-                rpn_class_logits, rpn_pred_bbox, target_class_ids, mrcnn_class_logits, target_deltas, mrcnn_bbox, target_mask, mrcnn_mask, rois, pred_depth = \
+                rpn_class_logits, rpn_pred_bbox, target_class_ids, mrcnn_class_logits, target_deltas, mrcnn_bbox, \
+                    target_mask, mrcnn_mask, rois, pred_depth = \
                     self.predict([images, image_metas, gt_class_ids, gt_boxes, gt_masks], mode='training')
 
                 if not target_class_ids.size():
@@ -2298,6 +2608,10 @@ class MaskRCNN(nn.Module):
 
                 # Compute losses
                 rpn_class_loss, rpn_bbox_loss, mrcnn_class_loss, mrcnn_bbox_loss, mrcnn_mask_loss, depth_loss = compute_losses(self.config, rpn_match, rpn_bbox, rpn_class_logits, rpn_pred_bbox, target_class_ids, mrcnn_class_logits, target_deltas, mrcnn_bbox, target_mask, mrcnn_mask, gt_depths, pred_depth)
+
+                if self.config.GPU_COUNT:
+                    depth_loss = depth_loss.cuda()
+
                 loss = rpn_class_loss + rpn_bbox_loss + mrcnn_class_loss + mrcnn_bbox_loss + mrcnn_mask_loss + depth_weight*depth_loss
 
                 # Progress
@@ -2446,6 +2760,7 @@ class MaskRCNN(nn.Module):
 ############################################################
 #  DepthCNN
 ############################################################
+
 
 class DepthCNN(nn.Module):
     """Encapsulates the Depth CNN model functionality for

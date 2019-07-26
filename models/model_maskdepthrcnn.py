@@ -640,8 +640,10 @@ def compute_mrcnn_depth_loss(config, target_depths, target_class_ids, pred_depth
 		# Mask_loss: loss = F.binary_cross_entropy(y_pred, y_true)
 
 		# proportion of 480-640 -> 21-28
-		loss = l1LossMask(y_pred[:, 3:25], y_true[:, 3:25],
-						  (y_true[:, 3:25] > 1e-4).float())
+		#loss = l1LossMask(y_pred[:, 3:25], y_true[:, 3:25],
+		#				  (y_true[:, 3:25] > 1e-4).float())
+
+		loss = l1LossMask(y_pred, y_true, (y_true > 1e-4).float())
 	else:
 		loss = Variable(torch.FloatTensor([0]), requires_grad=False)
 		if target_class_ids.is_cuda:
@@ -1062,7 +1064,7 @@ class MaskDepthRCNN(nn.Module):
 			return [rpn_class_logits, rpn_bbox, target_class_ids, mrcnn_class_logits, target_deltas, mrcnn_bbox,
 					target_mask, mrcnn_mask, rois, target_depth, mrcnn_depth]
 
-	def train_model(self, train_dataset, val_dataset, learning_rate, epochs, layers, augmentation=None):
+	def train_model(self, train_dataset, val_dataset, learning_rate, epochs, layers, depth_weight=1):
 		"""Train the model.
         train_dataset, val_dataset: Training and validation Dataset objects.
         learning_rate: The learning rate to train with
@@ -1121,11 +1123,11 @@ class MaskDepthRCNN(nn.Module):
 
 			# Training
 			loss, loss_rpn_class, loss_rpn_bbox, loss_mrcnn_class, loss_mrcnn_bbox, loss_mrcnn_mask, loss_depth = self.train_epoch(
-				train_generator, optimizer, self.config.STEPS_PER_EPOCH)
+				train_generator, optimizer, self.config.STEPS_PER_EPOCH, depth_weight)
 
 			# Validation
 			val_loss, val_loss_rpn_class, val_loss_rpn_bbox, val_loss_mrcnn_class, val_loss_mrcnn_bbox, val_loss_mrcnn_mask, val_loss_depth = self.valid_epoch(
-				val_generator, self.config.VALIDATION_STEPS)
+				val_generator, self.config.VALIDATION_STEPS, depth_weight)
 
 			# Statistics
 			self.loss_history.append(
@@ -1158,12 +1160,12 @@ class MaskDepthRCNN(nn.Module):
 			writer.add_scalar('Val/Depth', val_loss_depth, epoch)
 
 			# Save model
-			if epoch % 20 == 0:
+			if epoch % 25 == 0:
 				torch.save(self.state_dict(), self.checkpoint_path.format(epoch))
 
 		self.epoch = epochs
 
-	def train_epoch(self, datagenerator, optimizer, steps):
+	def train_epoch(self, datagenerator, optimizer, steps, depth_weight=1):
 		batch_count = 0
 		loss_sum = 0
 		loss_rpn_class_sum = 0
@@ -1218,7 +1220,7 @@ class MaskDepthRCNN(nn.Module):
 			rpn_class_loss, rpn_bbox_loss, mrcnn_class_loss, mrcnn_bbox_loss, mrcnn_mask_loss, depth_loss = compute_losses_(
 				self.config, rpn_match, rpn_bbox, rpn_class_logits, rpn_pred_bbox, target_class_ids, mrcnn_class_logits,
 				target_deltas, mrcnn_bbox, target_mask, mrcnn_mask, target_depths, mrcnn_depths)
-			loss = rpn_class_loss + rpn_bbox_loss + mrcnn_class_loss + mrcnn_bbox_loss + mrcnn_mask_loss + depth_loss
+			loss = rpn_class_loss + rpn_bbox_loss + mrcnn_class_loss + mrcnn_bbox_loss + mrcnn_mask_loss + depth_weight*depth_loss
 
 			# Backpropagation
 			loss.backward()
@@ -1229,7 +1231,7 @@ class MaskDepthRCNN(nn.Module):
 				batch_count = 0
 
 			# Progress
-			if step % 10 == 0:
+			if step % 100 == 0:
 				printProgressBar(step + 1, steps, prefix="\t{}/{}".format(step + 1, steps),
 								 suffix="Complete - loss: {:.5f} - rpn_class_loss: {:.5f} - rpn_bbox_loss: {:.5f} - mrcnn_class_loss: {:.5f} - mrcnn_bbox_loss: {:.5f} - mrcnn_mask_loss: {:.5f} - depth_loss: {:.5f}".format(
 									 loss.data.cpu().item(), rpn_class_loss.data.cpu().item(),
@@ -1253,7 +1255,7 @@ class MaskDepthRCNN(nn.Module):
 
 		return loss_sum, loss_rpn_class_sum, loss_rpn_bbox_sum, loss_mrcnn_class_sum, loss_mrcnn_bbox_sum, loss_mrcnn_mask_sum, loss_depth_sum
 
-	def valid_epoch(self, datagenerator, steps):
+	def valid_epoch(self, datagenerator, steps, depth_weight=1):
 
 		step = 0
 		loss_sum = 0
@@ -1309,10 +1311,10 @@ class MaskDepthRCNN(nn.Module):
 					self.config, rpn_match, rpn_bbox, rpn_class_logits, rpn_pred_bbox, target_class_ids,
 					mrcnn_class_logits,
 					target_deltas, mrcnn_bbox, target_mask, mrcnn_mask, target_depths, mrcnn_depths)
-				loss = rpn_class_loss + rpn_bbox_loss + mrcnn_class_loss + mrcnn_bbox_loss + mrcnn_mask_loss + depth_loss
+				loss = rpn_class_loss + rpn_bbox_loss + mrcnn_class_loss + mrcnn_bbox_loss + mrcnn_mask_loss + depth_weight*depth_loss
 
 				# Progress
-				if step % 10 == 0:
+				if step % 25 == 0:
 					printProgressBar(step + 1, steps, prefix="\t{}/{}".format(step + 1, steps),
 									 suffix="Complete - loss: {:.5f} - rpn_class_loss: {:.5f} - rpn_bbox_loss: {:.5f} - mrcnn_class_loss: {:.5f} - mrcnn_bbox_loss: {:.5f} - mrcnn_mask_loss: {:.5f} - depth_loss: {:.5f}".format(
 										 loss.data.cpu().item(), rpn_class_loss.data.cpu().item(),

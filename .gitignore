@@ -8,6 +8,7 @@ checkpoint/
 
 #Out files
 *.out
+out_files/*
 
 #Byte-compiled files
 __pycache__/
@@ -19,6 +20,8 @@ __pycache__/
 #Data folders
 example_images
 Example_prediction_images
+sun/classMapping40.mat
+sun/labels_matching_full.json
 
 #roialign
 nms/_ext/nms/_nms.so

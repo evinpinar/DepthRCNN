@@ -4,8 +4,8 @@ import torch
 import scipy.io
 import h5py
 
-from config import Config
-import utils
+from config_original import Config
+import utils_original as utils
 from torch.utils.data import Dataset
 
 ############################################################
@@ -24,7 +24,7 @@ class NYUConfig(Config):
 	IMAGES_PER_GPU = 1
 
 	# Number of classes (including background)
-	NUM_CLASSES = 40 + 1  # Background + nyu40 labels
+	NUM_CLASSES = 40 + 1  # Background + nyu40 labels #original 894
 
 	TRAIN_ROIS_PER_IMAGE = 200
 
@@ -53,9 +53,9 @@ class NYUDataset(Dataset):
 		assert subset in ["train", "test", "val"]
 		image_ids = []
 		if subset is "train":
-			image_ids = np.load(path_to_dataset+'/train_split_real.npy')
+			image_ids = np.load(path_to_dataset+'/train_split.npy')
 		elif subset is "test":
-			image_ids = np.load(path_to_dataset+'/test_split_real.npy')
+			image_ids = np.load(path_to_dataset+'/test_split.npy')
 		else:
 			image_ids = np.load(path_to_dataset + '/val_split.npy')
 
@@ -125,6 +125,15 @@ class NYUDataset(Dataset):
 		#print("Loading RPN targets...")
 		rpn_match, rpn_bbox = build_rpn_targets(image.shape, self.anchors, gt_class_ids, gt_boxes, self.config)
 
+
+		if gt_boxes.shape[0] > self.config.MAX_GT_INSTANCES:
+			ids = np.random.choice(
+				np.arange(gt_boxes.shape[0]), self.config.MAX_GT_INSTANCES, replace=False)
+			gt_class_ids = gt_class_ids[ids]
+			gt_boxes = gt_boxes[ids]
+			gt_masks = gt_masks[:, :, ids]
+
+
 		rpn_match = rpn_match[:, np.newaxis]
 		image = utils.mold_image(image.astype(np.float32), self.config)
 
@@ -137,7 +146,6 @@ class NYUDataset(Dataset):
 				depth.astype(np.float32)]
 
 		return info
-
 
 	def __len__(self):
 		return len(self.image_ids)
@@ -329,13 +337,13 @@ def load_image_gt(config, image_id, image, depth, mask, class_ids, augment=False
 		# Augmenters that are safe to apply to masks
 		# Some, such as Affine, have settings that make them unsafe, so always
 		# test your augmentation on masks
-		MASK_AUGMENTERS = ["Sequential", "SomeOf", "OneOf", "Sometimes",
-						   "Fliplr", "Flipud", "CropAndPad",
-						   "Affine", "PiecewiseAffine"]
+		#MASK_AUGMENTERS = ["Sequential", "SomeOf", "OneOf", "Sometimes",
+		#				   "Fliplr", "Flipud", "CropAndPad",
+		#				   "Affine", "PiecewiseAffine"]
 
-		def hook(images, augmenter, parents, default):
-			"""Determines which augmenters to apply to masks."""
-			return augmenter.__class__.__name__ in MASK_AUGMENTERS
+		#def hook(images, augmenter, parents, default):
+		#	"""Determines which augmenters to apply to masks."""
+		#	return augmenter.__class__.__name__ in MASK_AUGMENTERS
 
 		# Store shapes before augmentation to compare
 		image_shape = image.shape
@@ -344,9 +352,11 @@ def load_image_gt(config, image_id, image, depth, mask, class_ids, augment=False
 		# Make augmenters deterministic to apply similarly to images and masks
 		det = augmentation.to_deterministic()
 		image = det.augment_image(image)
-		depth = det.augment_image(depth, hooks=imgaug.HooksImages(activator=hook))
-		mask = det.augment_image(mask.astype(np.uint8),
-								 hooks=imgaug.HooksImages(activator=hook))
+		#depth = det.augment_image(depth, hooks=imgaug.HooksImages(activator=hook))
+		#mask = det.augment_image(mask.astype(np.uint8),
+		#						 hooks=imgaug.HooksImages(activator=hook))
+		depth = det.augment_image(depth)
+		mask = det.augment_image(mask.astype(np.uint8))
 		# Verify that shapes didn't change
 		assert image.shape == image_shape, "Augmentation shouldn't change image size"
 		assert depth.shape == depth_shape, "Augmentation shouldn't change depth size"

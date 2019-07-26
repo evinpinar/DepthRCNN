@@ -21,7 +21,6 @@ import numpy as np
 import h5py
 from tqdm import tqdm
 
-
 import nyu
 import models.model as model
 from models.model_maskdepthrcnn import *
@@ -31,43 +30,54 @@ from tensorboardX import SummaryWriter
 import imgaug.augmenters as iaa
 
 
-
-def train_maskrcnn(augmentation=None):
+def train_maskrcnn(augmentation=None, depth_weight=0):
 	config = nyu.NYUConfig()
 	path_to_dataset = '../NYU_data'
 
-	standard_split = True
+	standard_split = False
 
 	if standard_split:
 		dataset_train = nyu.NYUDataset(path_to_dataset, 'train', config, augmentation=augmentation)
 		dataset_val = nyu.NYUDataset(path_to_dataset, 'test', config)
 	else:
+		### CHANGE NUMPY FILES IN NYU_DATASET ACCORDINGLY!!!
 		dataset_train = nyu.NYUDataset(path_to_dataset, 'train', config, augmentation=augmentation)
 		dataset_val = nyu.NYUDataset(path_to_dataset, 'val', config)
 		dataset_test = nyu.NYUDataset(path_to_dataset, 'test', config)
 
+	config.STEPS_PER_EPOCH = 300
+	config.TRAIN_ROIS_PER_IMAGE = 100
+	config.VALIDATION_STEPS = 25
+
+	epochs = 50
+	layers = "heads"  # options: 3+, 4+, 5+, heads, all
+
 	mask_model = model.MaskRCNN(config)
-	mask_model.cuda()
 
 	resnet_path = '../resnet50_imagenet.pth'
 	mask_model.load_weights(resnet_path)
 
-	#checkpoint_dir = 'checkpoints/nyudepth20190712T1658/mask_rcnn_nyudepth_0100.pth'
+	#checkpoint_dir = 'checkpoints/nyudepth20190722T1403/mask_rcnn_nyudepth_0050.pth'
 	#mask_model.load_state_dict(torch.load(checkpoint_dir))
 
-	config.STEPS_PER_EPOCH = 120
-	config.TRAIN_ROIS_PER_IMAGE = 100
-	config.VALIDATION_STEPS = 20
-
-	epochs = 300
-	layers = "5+"  # options: 3+, 4+, 5+, heads, all
-
-	depth_weight = 5
+	mask_model.cuda()
 
 	mask_model.train()
 	start = timer()
 	mask_model.train_model(dataset_train, dataset_val, learning_rate=config.LEARNING_RATE, epochs=epochs,
 						   layers=layers, depth_weight=depth_weight)
+
+	'''
+	
+	model_path = mask_model.checkpoint_path
+	mask_model.set_log_dir(model_path=model_path)
+	config.LEARNING_RATE = config.LEARNING_RATE/10
+	epochs = 150
+	layers = "heads"
+	mask_model.train_model(dataset_train, dataset_val, learning_rate=config.LEARNING_RATE, epochs=epochs,
+						   layers=layers, depth_weight=depth_weight)
+
+	'''
 
 	end = timer()
 	print('Total training time: ', end - start)
@@ -79,16 +89,10 @@ def train_depth(augmentation=None):
 
 	dataset_train = nyu.NYUDepthDataset(path_to_dataset, 'train', config, augment=False, augmentation=augmentation)
 	dataset_val = nyu.NYUDepthDataset(path_to_dataset, 'test', config)
-	#dataset_test = nyu.NYUDepthDataset(path_to_dataset, 'test', config)
+	# dataset_test = nyu.NYUDepthDataset(path_to_dataset, 'test', config)
 
-	depth_model = model.DepthCNN(config)
-	depth_model.cuda()
-
-	resnet_path = '../resnet50_imagenet.pth'
-	depth_model.load_weights(resnet_path)
-
-	#checkpoint_dir = 'test/nyudepth20190710T1750/mask_rcnn_nyudepth_0300.pth'
-	#depth_model.load_state_dict(torch.load(checkpoint_dir))
+	# checkpoint_dir = 'test/nyudepth20190710T1750/mask_rcnn_nyudepth_0300.pth'
+	# depth_model.load_state_dict(torch.load(checkpoint_dir))
 
 	config.STEPS_PER_EPOCH = 1000
 	config.TRAIN_ROIS_PER_IMAGE = 100
@@ -96,53 +100,52 @@ def train_depth(augmentation=None):
 
 	epochs = 300
 
+	depth_model = model.DepthCNN(config)
+	depth_model.cuda()
+
+	resnet_path = '../resnet50_imagenet.pth'
+	depth_model.load_weights(resnet_path)
+
 	depth_model.train()
 	start = timer()
 	depth_model.train_model(dataset_train, dataset_val, learning_rate=config.LEARNING_RATE, epochs=epochs)
 	end = timer()
 	print('Total training time: ', end - start)
 
-	## Modify this to see graph on tensorboard!
-	# out = depth_model(dataset_test[])
-	# writer = SummaryWriter()
-	# writer.add_graph(model, out)
-	# writer.close()
 
-def train_depthmask():
+def train_depthmask(augmentation=None, depth_weight=0):
 	config = nyu.NYUConfig()
 	path_to_dataset = '../NYU_data'
 
-	dataset_train = nyu.NYUDataset(path_to_dataset, 'train', config)
-	dataset_test = nyu.NYUDataset(path_to_dataset, 'test', config)
+	dataset_train = nyu.NYUDataset(path_to_dataset, 'train', config, augmentation=augmentation)
+	dataset_test = nyu.NYUDataset(path_to_dataset, 'test', config, augmentation=augmentation)
 
 	model_maskdepth = MaskDepthRCNN(config)
 	model_maskdepth.cuda()
 
-	resnet_path = '../resnet50_imagenet.pth'
-	model_maskdepth.load_weights(resnet_path)
+	#resnet_path = '../resnet50_imagenet.pth'
+	#model_maskdepth.load_weights(resnet_path)
 
-	# checkpoint_dir = 'test/nyudepth20190711T0843/mask_rcnn_nyudepth_0100.pth'
-	# mask_model.load_state_dict(torch.load(checkpoint_dir))
+	checkpoint_dir = 'checkpoints/nyudepth20190721T1816/mask_depth_rcnn_nyudepth_0025.pth'
+	model_maskdepth.load_state_dict(torch.load(checkpoint_dir))
 
-	config.STEPS_PER_EPOCH = 50
+	config.STEPS_PER_EPOCH = 300
 	config.TRAIN_ROIS_PER_IMAGE = 100
-	config.VALIDATION_STEPS = 20
+	config.VALIDATION_STEPS = 25
 
 	epochs = 100
-	layers = "5+"  # options: 3+, 4+, 5+, heads, all
+	layers = "heads"  # options: 3+, 4+, 5+, heads, all
 
-	model_maskdepth.train()
 	start = timer()
 	model_maskdepth.train_model(dataset_train, dataset_test, learning_rate=config.LEARNING_RATE, epochs=epochs,
-						   layers=layers)
+								layers=layers)
 	end = timer()
 	print('Total training time: ', end - start)
 
-if __name__ == '__main__':
 
+if __name__ == '__main__':
 	augmentation = iaa.Sometimes(.667, iaa.Sequential([
 		iaa.Fliplr(0.5),  # horizontal flips
-		iaa.Crop(percent=(0, 0.1)),  # random crops
 		# Small gaussian blur with random sigma between 0 and 0.25.
 		# But we only blur about 50% of all images.
 		iaa.Sometimes(0.5,
@@ -162,12 +165,18 @@ if __name__ == '__main__':
 		iaa.Multiply((0.8, 1.2)),
 		# Apply affine transformations to each image.
 		# Scale/zoom them, translate/move them, rotate them and shear them.
-		iaa.Affine(
-			scale={"x": (0.8, 1.2), "y": (0.8, 1.2)},
-			# translate_percent={"x": (-0.2, 0.2), "y": (-0.2, 0.2)},
-			rotate=(-180, 180),
-			# shear=(-8, 8)
-		)
+		# iaa.Affine(
+		#	scale={"x": (0.8, 1.2), "y": (0.8, 1.2)},
+		#	translate_percent={"x": (-0.1, 0.1), "y": (-0.1, 0.1)},
+		#	rotate=(-5, 5),
+		#	#shear=(-8, 8)
+		# iaa.Crop(percent=(0, 0.1)),  # random crops
+		# )
 	], random_order=True))  # apply augmenters in random order
 
-	train_maskrcnn(augmentation=augmentation)
+	# augmentation = iaa.Sometimes(.667, iaa.Fliplr(0.5))  # horizontal flips)  # apply augmenters in random order
+
+	augmentation = iaa.Fliplr(0.5)
+
+	train_maskrcnn(augmentation=augmentation, depth_weight=0)
+
