@@ -93,7 +93,7 @@ class Config(object):
 
     # If enabled, resizes instance masks to a smaller size to reduce
     # memory load. Recommended when using high-resolution images.
-    USE_MINI_MASK = True
+    USE_MINI_MASK = False
     MINI_MASK_SHAPE = (56, 56)  # (height, width) of the mini-mask
 
     # Input image resizing
@@ -213,7 +213,7 @@ class Config(object):
     METADATA = np.array([571.87, 571.87, 320, 240, 640, 480, 0, 0, 0, 0])
 
     GLOBAL_MASK = False
-    PREDICT_DEPTH = False
+    PREDICT_DEPTH = True
 
     NUM_PARAMETER_CHANNELS = 0
 
@@ -238,6 +238,8 @@ class Config(object):
             [[int(math.ceil(self.IMAGE_SHAPE[0] / stride)),
               int(math.ceil(self.IMAGE_SHAPE[1] / stride))]
              for stride in self.BACKBONE_STRIDES])
+
+        self.PREDICT_BOUNDARY = False
 
     def display(self):
         """Display Configuration values."""

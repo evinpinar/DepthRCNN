@@ -97,7 +97,7 @@ class SunDataset(utils.Dataset):
         self.add_class("sun", 13, "window")
 
         # Train or validation dataset?
-        assert subset in ["train", "val"]
+        assert subset in ["train", "val", "test"]
         dataset_dir = os.path.join(dataset_dir, subset)
 
         # Load annotations
@@ -137,10 +137,16 @@ class SunDataset(utils.Dataset):
             image = skimage.io.imread(image_path)
             height, width = image.shape[:2]
 
+            depth_file_name = a['filename'].rsplit( ".", 1 )[ 0 ] +"_depth.png"
+            depth_path = os.path.join(dataset_dir, depth_file_name)
+            #depth = skimage.io.imread(depth_path)
+
+
             self.add_image(
                 "sun",
                 image_id=a['filename'],  # use file name as a unique image id
                 path=image_path,
+                depth_path=depth_path,
                 width=width, height=height,
                 polygons=polygons,
                 class_ids=class_ids)

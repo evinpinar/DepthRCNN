@@ -1376,6 +1376,7 @@ def compute_mrcnn_mask_loss(config, target_masks, target_class_ids, pred_masks):
 
     return loss
 
+
 def compute_depth_loss(target_depth, pred_depth):
 
     # TODO: Modify for batch.
@@ -1429,6 +1430,8 @@ def load_image_gt(dataset, config, image_id, augment=False,
     # Load image and mask
     image = dataset.load_image(image_id)
     mask, class_ids = dataset.load_mask(image_id)
+    depth = dataset.load_depth(image_id)
+    depth = depth/1000
     shape = image.shape
     #image = cv2.resize(image, (depth.shape[1], depth.shape[0]))
     image, window, scale, padding, crop = utils.resize_image(
@@ -1438,13 +1441,14 @@ def load_image_gt(dataset, config, image_id, augment=False,
         max_dim=config.IMAGE_MAX_DIM,
         mode=config.IMAGE_RESIZE_MODE)
     mask = utils.resize_mask(mask, scale, padding, crop)
-    # depth = utils.resize_mask(depth, scale, padding)
+    depth = utils.resize_depth(depth, scale, padding, crop)
 
     # Random horizontal flips.
     if augment:
         if random.randint(0, 1):
             image = np.fliplr(image)
             mask = np.fliplr(mask)
+            depth = np.fliplr(depth)
 
     # Note that some boxes might be all zeros if the corresponding mask got cropped out.
     # and here is to filter them out
@@ -1470,7 +1474,7 @@ def load_image_gt(dataset, config, image_id, augment=False,
     # Image meta data
     image_meta = compose_image_meta(image_id, shape, window, active_class_ids)
 
-    return image, image_meta, class_ids, bbox, mask
+    return image, image_meta, class_ids, bbox, mask, depth
 
 def build_rpn_targets(image_shape, anchors, gt_class_ids, gt_boxes, config):
     """Given the anchors and GT boxes, compute overlaps and identify positive
@@ -1635,7 +1639,7 @@ class Dataset(torch.utils.data.Dataset):
     def __getitem__(self, image_index):
         # Get GT bounding boxes and masks for image.
         image_id = self.image_ids[image_index]
-        image, image_metas, gt_class_ids, gt_boxes, gt_masks = \
+        image, image_metas, gt_class_ids, gt_boxes, gt_masks, gt_depth = \
             load_image_gt(self.dataset, self.config, image_id, augment=self.augment,
                           use_mini_mask=self.config.USE_MINI_MASK)
 
@@ -1712,6 +1716,8 @@ def data_generator(dataset, config, shuffle=True, augment=False, augmentation=No
     - gt_masks: [batch, height, width, MAX_GT_INSTANCES]. The height and width
                 are those of the image unless use_mini_mask is True, in which
                 case they are defined in MINI_MASK_SHAPE.
+    - depth: [batch, height, width]. The height and width
+              are those of the image.
     outputs list: Usually empty in regular training. But if detection_targets
         is True then the outputs list contains target class_ids, bbox deltas,
         and masks.
@@ -1744,12 +1750,12 @@ def data_generator(dataset, config, shuffle=True, augment=False, augmentation=No
 
             # If the image source is not to be augmented pass None as augmentation
             if dataset.image_info[image_id]['source'] in no_augmentation_sources:
-                image, image_meta, gt_class_ids, gt_boxes, gt_masks = \
+                image, image_meta, gt_class_ids, gt_boxes, gt_masks, gt_depth = \
                 load_image_gt(dataset, config, image_id, augment=augment,
 
                               use_mini_mask=config.USE_MINI_MASK)
             else:
-                image, image_meta, gt_class_ids, gt_boxes, gt_masks = \
+                image, image_meta, gt_class_ids, gt_boxes, gt_masks, gt_depth = \
                     load_image_gt(dataset, config, image_id, augment=augment,
 
                                 use_mini_mask=config.USE_MINI_MASK)
@@ -1781,6 +1787,8 @@ def data_generator(dataset, config, shuffle=True, augment=False, augmentation=No
                 batch_gt_masks = np.zeros(
                     (batch_size, gt_masks.shape[0], gt_masks.shape[1],
                      config.MAX_GT_INSTANCES), dtype=gt_masks.dtype)
+                batch_depth = np.zeros(
+                    (batch_size,) + gt_depth.shape, dtype=np.float32)
 
             # If more instances than fits in the array, sub-sample from them.
             if gt_boxes.shape[0] > config.MAX_GT_INSTANCES:
@@ -1798,19 +1806,20 @@ def data_generator(dataset, config, shuffle=True, augment=False, augmentation=No
             batch_gt_class_ids[b, :gt_class_ids.shape[0]] = gt_class_ids
             batch_gt_boxes[b, :gt_boxes.shape[0]] = gt_boxes
             batch_gt_masks[b, :, :, :gt_masks.shape[-1]] = gt_masks
+            batch_depth[b] = gt_depth.astype(np.float32)
             b += 1
 
             # Batch full?
             if b >= batch_size:
 
-                depth = np.zeros(1)
+                #depth = np.zeros(1)
 
                 yield [torch.from_numpy(batch_images.transpose(0, 3, 1, 2)),
                        torch.from_numpy(batch_image_meta), torch.from_numpy(batch_rpn_match),
                        torch.from_numpy(batch_rpn_bbox.astype(np.float32)), torch.from_numpy(batch_gt_class_ids),
                        torch.from_numpy(batch_gt_boxes.astype(np.float32)),
                        torch.from_numpy(batch_gt_masks.astype(np.float32).transpose(0, 3, 1, 2)),
-                       torch.from_numpy(depth)]
+                       torch.from_numpy(batch_depth.astype(np.float32))]
 
                 #inputs = [batch_images, batch_image_meta, batch_rpn_match, batch_rpn_bbox,
                 #          batch_gt_class_ids, batch_gt_boxes, batch_gt_masks]
@@ -1830,6 +1839,124 @@ def data_generator(dataset, config, shuffle=True, augment=False, augmentation=No
             error_count += 1
             if error_count > 5:
                 raise
+
+
+def data_generator_onlydepth(dataset, config, shuffle=True, augment=False, augmentation=None,
+                   random_rois=0, batch_size=1, detection_targets=False,
+                   no_augmentation_sources=None):
+    """A generator that returns images and corresponding target class ids,
+    bounding box deltas, and masks.
+    dataset: The Dataset object to pick data from
+    config: The model config object
+    shuffle: If True, shuffles the samples before every epoch
+    augment: (deprecated. Use augmentation instead). If true, apply random
+        image augmentation. Currently, only horizontal flipping is offered.
+    augmentation: Optional. An imgaug (https://github.com/aleju/imgaug) augmentation.
+        For example, passing imgaug.augmenters.Fliplr(0.5) flips images
+        right/left 50% of the time.
+    batch_size: How many images to return in each call
+    no_augmentation_sources: Optional. List of sources to exclude for
+        augmentation. A source is string that identifies a dataset and is
+        defined in the Dataset class.
+    Returns a Python generator. Upon calling next() on it, the
+    generator returns two lists, inputs and outputs. The contents
+    of the lists differs depending on the received arguments:
+    inputs list:
+    - images: [batch, H, W, C]
+    - image_meta: [batch, (meta data)] Image details. See compose_image_meta()
+    - depth: [batch, height, width]. The height and width
+              are those of the image.
+    """
+    b = 0  # batch item index
+    image_index = -1
+    image_ids = np.copy(dataset.image_ids)
+    error_count = 0
+    no_augmentation_sources = no_augmentation_sources or []
+
+
+    # Keras requires a generator to run indefinitely.
+    while True:
+        try:
+            # Increment index to pick next image. Shuffle if at the start of an epoch.
+            image_index = (image_index + 1) % len(image_ids)
+            if shuffle and image_index == 0:
+                np.random.shuffle(image_ids)
+
+            # Get GT bounding boxes and masks for image.
+            image_id = image_ids[image_index]
+
+            # If the image source is not to be augmented pass None as augmentation
+            if dataset.image_info[image_id]['source'] in no_augmentation_sources:
+                image, image_meta, gt_class_ids, gt_boxes, gt_masks, gt_depth = \
+                load_image_gt(dataset, config, image_id, augment=augment,
+
+                              use_mini_mask=config.USE_MINI_MASK)
+            else:
+                image, image_meta, gt_class_ids, gt_boxes, gt_masks, gt_depth = \
+                    load_image_gt(dataset, config, image_id, augment=augment,
+
+                                use_mini_mask=config.USE_MINI_MASK)
+
+            # Skip images that have no instances. This can happen in cases
+            # where we train on a subset of classes and the image doesn't
+            # have any of the classes we care about.
+            if not np.any(gt_class_ids > 0):
+                continue
+
+
+
+            # Init batch arrays
+            if b == 0:
+                batch_image_meta = np.zeros(
+                    (batch_size,) + image_meta.shape, dtype=image_meta.dtype)
+                batch_images = np.zeros(
+                    (batch_size,) + image.shape, dtype=np.float32)
+                batch_depth = np.zeros(
+                    (batch_size,) + gt_depth.shape, dtype=np.float32)
+
+            # If more instances than fits in the array, sub-sample from them.
+            if gt_boxes.shape[0] > config.MAX_GT_INSTANCES:
+                ids = np.random.choice(
+                    np.arange(gt_boxes.shape[0]), config.MAX_GT_INSTANCES, replace=False)
+                gt_class_ids = gt_class_ids[ids]
+                gt_boxes = gt_boxes[ids]
+                gt_masks = gt_masks[:, :, ids]
+
+            # Add to batch
+            batch_image_meta[b] = image_meta
+            batch_images[b] = mold_image(image.astype(np.float32), config)
+            batch_depth[b] = gt_depth.astype(np.float32)
+            b += 1
+
+            # Batch full?
+            if b >= batch_size:
+
+                #depth = np.zeros(1)
+
+                yield [torch.from_numpy(batch_images.transpose(0, 3, 1, 2)),
+                       torch.from_numpy(batch_image_meta),
+                       torch.from_numpy(batch_depth.astype(np.float32))]
+
+                #inputs = [batch_images, batch_image_meta, batch_rpn_match, batch_rpn_bbox,
+                #          batch_gt_class_ids, batch_gt_boxes, batch_gt_masks]
+                #outputs = []
+
+
+                #yield inputs, outputs
+
+                # start a new batch
+                b = 0
+        except (GeneratorExit, KeyboardInterrupt):
+            raise
+        except:
+            # Log it and skip the image
+            logging.exception("Error processing image {}".format(
+                dataset.image_info[image_id]))
+            error_count += 1
+            if error_count > 5:
+                raise
+
+
 
 ############################################################
 #  MaskRCNN Class for Depth
@@ -2446,7 +2573,7 @@ class MaskRCNN(nn.Module):
             writer.add_scalar('Val/Depth', val_loss_depth, epoch)
 
             # Save model
-            if epoch % 1 == 0:
+            if epoch % 10 == 0:
                 torch.save(self.state_dict(), self.checkpoint_path.format(epoch))
 
         self.epoch = epochs
@@ -2528,7 +2655,7 @@ class MaskRCNN(nn.Module):
                 batch_count = 0
 
             # Progress
-            if step % 25 == 0:
+            if step % 200 == 0:
                 printProgressBar(step + 1, steps, prefix="\t{}/{}".format(step + 1, steps),
                                  suffix="Complete - loss: {:.5f} - rpn_class_loss: {:.5f} - rpn_bbox_loss: {:.5f} - mrcnn_class_loss: {:.5f} - mrcnn_bbox_loss: {:.5f} - mrcnn_mask_loss: {:.5f} - depth_loss: {:.5f}".format(
                                      loss.data.cpu().item(), rpn_class_loss.data.cpu().item(), rpn_bbox_loss.data.cpu().item(),
@@ -2615,7 +2742,7 @@ class MaskRCNN(nn.Module):
                 loss = rpn_class_loss + rpn_bbox_loss + mrcnn_class_loss + mrcnn_bbox_loss + mrcnn_mask_loss + depth_weight*depth_loss
 
                 # Progress
-                if step % 25 == 0:
+                if step % 100 == 0:
                     printProgressBar(step + 1, steps, prefix="\t{}/{}".format(step + 1, steps),
                                      suffix="Complete - loss: {:.5f} - rpn_class_loss: {:.5f} - rpn_bbox_loss: {:.5f} - mrcnn_class_loss: {:.5f} - mrcnn_bbox_loss: {:.5f} - mrcnn_mask_loss: {:.5f} - depth_loss: {:.5f}".format(
                                          loss.data.cpu().item(), rpn_class_loss.data.cpu().item(), rpn_bbox_loss.data.cpu().item(),
@@ -2656,11 +2783,13 @@ class MaskRCNN(nn.Module):
         for image in images:
             ## Resize image to fit the model expected size
             ## TODO: move resizing to mold_image()
-            molded_image, window, scale, padding = utils.resize_image(
+            molded_image, window, scale, padding, crop = utils.resize_image(
                 image,
                 min_dim=config.IMAGE_MIN_DIM,
                 max_dim=config.IMAGE_MAX_DIM,
-                padding=config.IMAGE_PADDING)
+                min_scale=self.config.IMAGE_MIN_SCALE,
+                mode=self.config.IMAGE_RESIZE_MODE)
+                # padding=config.IMAGE_PADDING)
             molded_image = mold_image(molded_image, config)
             ## Build image_meta
             image_meta = compose_image_meta(
@@ -3049,6 +3178,88 @@ class DepthCNN(nn.Module):
         self.epoch = epochs
 
 
+    def train_model2(self, train_dataset, val_dataset, learning_rate, epochs, layers="all"):
+        """Train the model.
+        train_dataset, val_dataset: Training and validation Dataset objects.
+        learning_rate: The learning rate to train with
+        epochs: Number of training epochs. Note that previous training epochs
+                are considered to be done alreay, so this actually determines
+                the epochs to train in total rather than in this particaular
+                call.
+        layers: Allows selecting wich layers to train. It can be:
+            - A regular expression to match layer names to train
+            - One of these predefined values:
+              heaads: The RPN, classifier and mask heads of the network
+              all: All the layers
+              3+: Train Resnet stage 3 and up
+              4+: Train Resnet stage 4 and up
+              5+: Train Resnet stage 5 and up
+        """
+
+        # Pre-defined layer regular expressions
+
+        layer_regex = {
+            # all layers but the backbone
+            "heads": r"(fpn.P5\_.*)|(fpn.P4\_.*)|(fpn.P3\_.*)|(fpn.P2\_.*)|(rpn.*)|(classifier.*)|(mask.*)|(depth.*)",
+            # From a specific Resnet stage and up
+            "3+": r"(fpn.C3.*)|(fpn.C4.*)|(fpn.C5.*)|(fpn.P5\_.*)|(fpn.P4\_.*)|(fpn.P3\_.*)|(fpn.P2\_.*)|(rpn.*)|(classifier.*)|(mask.*)|(depth.*)",
+            "4+": r"(fpn.C4.*)|(fpn.C5.*)|(fpn.P5\_.*)|(fpn.P4\_.*)|(fpn.P3\_.*)|(fpn.P2\_.*)|(rpn.*)|(classifier.*)|(mask.*)|(depth.*)",
+            "5+": r"(fpn.C5.*)|(fpn.P5\_.*)|(fpn.P4\_.*)|(fpn.P3\_.*)|(fpn.P2\_.*)|(rpn.*)|(classifier.*)|(mask.*)|(depth.*)",
+            # All layers
+            "all": ".*",
+        }
+
+        if layers in layer_regex.keys():
+            layers = layer_regex[layers]
+
+        # Data generators
+        train_generator = data_generator_onlydepth(train_dataset, self.config, shuffle=True, augment=True, batch_size=1)
+        val_generator = data_generator_onlydepth(val_dataset, self.config, shuffle=True, augment=True, batch_size=1)
+
+
+        # Optimizer object
+        # Add L2 Regularization
+        # Skip gamma and beta weights of batch normalization layers.
+        trainables_wo_bn = [param for name, param in self.named_parameters() if param.requires_grad and not 'bn' in name]
+        trainables_only_bn = [param for name, param in self.named_parameters() if param.requires_grad and 'bn' in name]
+        optimizer = optim.SGD([
+            {'params': trainables_wo_bn, 'weight_decay': self.config.WEIGHT_DECAY},
+            {'params': trainables_only_bn}
+        ], lr=learning_rate, momentum=self.config.LEARNING_MOMENTUM)
+
+        for epoch in range(self.epoch+1, epochs+1):
+            log("Epoch {}/{}.".format(epoch, epochs))
+
+            # Training
+            loss_depth = self.train_epoch(train_generator, optimizer, self.config.STEPS_PER_EPOCH)
+
+            # Validation
+            val_loss_depth = self.valid_epoch(val_generator, self.config.VALIDATION_STEPS)
+
+            # Statistics
+            self.loss_history.append([loss_depth])
+            self.val_loss_history.append([val_loss_depth])
+
+            if not os.path.exists(self.log_dir):
+                os.makedirs(self.log_dir)
+
+            if os.path.exists(self.log_dir):
+                writer = SummaryWriter(self.log_dir+'/log/')
+
+
+            writer.add_scalar('Train/Loss', loss_depth, epoch)
+            writer.add_scalar('Val/Loss', val_loss_depth, epoch)
+
+            visualize.plot_depth_loss(self.loss_history, self.val_loss_history, save=True, log_dir=self.log_dir)
+
+            # Save model
+            if epoch%25 == 0:
+                torch.save(self.state_dict(), self.checkpoint_path.format(epoch))
+
+        self.epoch = epochs
+
+
+
     def train_epoch(self, datagenerator, optimizer, steps):
         batch_count = 0
         loss_sum = 0
@@ -3060,7 +3271,7 @@ class DepthCNN(nn.Module):
             batch_count += 1
 
             images = inputs[0]
-            gt_depths = inputs[1]
+            gt_depths = inputs[2]
 
             # Wrap in variables
             images = Variable(images)
@@ -3073,6 +3284,9 @@ class DepthCNN(nn.Module):
 
             # Run object detection
             pred_depth = self.predict([images], mode='training')[0]
+
+
+            #print("gt shape: ", gt_depths.shape, " pred shape: ", pred_depth.shape)
 
             # Compute losses
             loss = compute_depth_loss(gt_depths, pred_depth)
@@ -3109,7 +3323,7 @@ class DepthCNN(nn.Module):
         with torch.no_grad():
             for inputs in datagenerator:
                 images = inputs[0]
-                gt_depths = inputs[1]
+                gt_depths = inputs[2]
 
                 # Wrap in variables
                 images = Variable(images)
