@@ -213,7 +213,7 @@ class Config(object):
     METADATA = np.array([571.87, 571.87, 320, 240, 640, 480, 0, 0, 0, 0])
 
     GLOBAL_MASK = False
-    PREDICT_DEPTH = True
+    PREDICT_DEPTH = False
 
     NUM_PARAMETER_CHANNELS = 0
 

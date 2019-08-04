@@ -133,7 +133,6 @@ class NYUDataset(Dataset):
 			gt_boxes = gt_boxes[ids]
 			gt_masks = gt_masks[:, :, ids]
 
-
 		rpn_match = rpn_match[:, np.newaxis]
 		image = utils.mold_image(image.astype(np.float32), self.config)
 
@@ -158,6 +157,7 @@ class NYUDepthDataset(Dataset):
 		self.config = config
 		self.augment = augment
 		self.augmentation = augmentation
+		self.transform = False
 
 		assert subset in ["train", "test", "val"]
 		image_ids = []
@@ -165,16 +165,23 @@ class NYUDepthDataset(Dataset):
 			image_ids = np.load(path_to_dataset+'/train_split_real.npy')
 		elif subset is "test":
 			image_ids = np.load(path_to_dataset+'/test_split_real.npy')
+			self.transform = True
 		else:
 			image_ids = np.load(path_to_dataset + '/val_split.npy')
 
 		print("Extraction from numpy files...")
 		imgs = []
 		depths = []
-		for i in range(len(image_ids)):
-			ind = image_ids[i]
-			imgs.append(path_to_dataset + "/rgb/" + str(ind))
-			depths.append(path_to_dataset + "/depth/" + str(ind))
+		if subset is "test":
+			for i in range(len(image_ids)):
+				ind = image_ids[i]
+				imgs.append(path_to_dataset + "/rgb_test_cropped/" + str(ind))
+				depths.append(path_to_dataset + "/depth_test_cropped/" + str(ind))
+		else:
+			for i in range(len(image_ids)):
+				ind = image_ids[i]
+				imgs.append(path_to_dataset + "/rgb/" + str(ind))
+				depths.append(path_to_dataset + "/depth/" + str(ind))
 
 		self.image_ids = image_ids
 		self.images = imgs
@@ -198,11 +205,24 @@ class NYUDepthDataset(Dataset):
 		image = np.load(self.images[i]+'.npy')
 		depth = np.load(self.depths[i]+'.npy')/4
 
+
+		#if self.transform:
+		#	image, depth = self.transform_test(image, depth)
+
+
 		image, window, scale, padding = utils.resize_image(
 			image,
 			min_dim=self.config.IMAGE_MAX_DIM,
 			max_dim=self.config.IMAGE_MAX_DIM,
 			padding=self.config.IMAGE_PADDING)
+
+
+		depth, window, scale, padding = utils.resize_depth(
+			depth,
+			min_dim=self.config.IMAGE_MAX_DIM,
+			max_dim=self.config.IMAGE_MAX_DIM,
+			padding=self.config.IMAGE_PADDING)
+
 
 		#if self.augment:
 
@@ -242,10 +262,12 @@ class NYUDepthDataset(Dataset):
 
 		image = utils.mold_image(image.astype(np.float32), self.config)
 
-		depth = np.concatenate([np.zeros((80, 640)), depth, np.zeros((80, 640))], axis=0)
+		#depth = np.concatenate([np.zeros((80, 640)), depth, np.zeros((80, 640))], axis=0)
 
 		image = image.transpose((2, 0, 1)).astype(np.float32)
 		depth = depth.astype(np.float32)
+
+
 
 		#w = 448
 		#image = image[:, :w, :]

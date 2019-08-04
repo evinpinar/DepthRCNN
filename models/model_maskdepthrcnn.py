@@ -285,6 +285,8 @@ def detection_target_depth(proposals, gt_class_ids, gt_boxes, gt_masks, gt_depth
     gt_boxes = gt_boxes.squeeze(0)
     gt_masks = gt_masks.squeeze(0)
     gt_depths = gt_depths.squeeze(0)
+    # print(gt_masks.shape)
+    # print(gt_depths.shape)
     gt_masked_depths = compute_gt_depths(gt_depths, gt_masks)
 
     no_crowd_bool = Variable(torch.ByteTensor(proposals.size()[0] * [True]), requires_grad=False)
@@ -899,7 +901,9 @@ class MaskDepthRCNN(nn.Module):
         # molded_images = Variable(molded_images, volatile=True)
 
         ## Run object detection
+        print("molded: ", molded_images.shape)
         detections, mrcnn_mask, mrcnn_depth = self.predict([molded_images, image_metas], mode='inference')
+        print("outcome: ", mrcnn_mask.shape)
 
         if len(detections[0]) == 0:
             return [{'rois': [], 'class_ids': [], 'scores': [], 'masks': [], 'parameters': []}]
@@ -1311,6 +1315,7 @@ class MaskDepthRCNN(nn.Module):
                 gt_boxes = gt_boxes.cuda()
                 gt_masks = gt_masks.cuda()
                 gt_depths = gt_depths.cuda()
+
 
             # Run object detection
             rpn_class_logits, rpn_pred_bbox, target_class_ids, mrcnn_class_logits, target_deltas, mrcnn_bbox, target_mask, mrcnn_mask, rois, target_depths, mrcnn_depths = \

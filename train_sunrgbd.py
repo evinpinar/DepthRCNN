@@ -116,21 +116,22 @@ def train_maskrcnn(augmentation=None, depth_weight=0):
 
 	config.PREDICT_DEPTH = True
 
-	epochs = 50
-	layers = "heads"  # options: 3+, 4+, 5+, heads, all
-
 	mask_model = modellib.MaskRCNN(config)
 	mask_model.cuda()
 
-	resnet_path = '../resnet50_imagenet.pth'
-	mask_model.load_weights(resnet_path)
+	#resnet_path = '../resnet50_imagenet.pth'
+	#mask_model.load_weights(resnet_path)
 
-	# checkpoint_dir = 'checkpoints/sun20190726T1130/mask_rcnn_sun_0005.pth'
-	# mask_model.load_state_dict(torch.load(checkpoint_dir))
+	checkpoint_dir = 'checkpoints/sun20190801T0836/mask_rcnn_sun_0040.pth'
+	mask_model.load_state_dict(torch.load(checkpoint_dir))
 
 	start = timer()
-	mask_model.train_model2(dataset_train, dataset_val, learning_rate=config.LEARNING_RATE, epochs=epochs,
-						   layers=layers, depth_weight=depth_weight)
+
+	epochs = 30
+	layers = "all"  # options: 3+, 4+, 5+, heads, all
+	lr = config.LEARNING_RATE/10
+	mask_model.train_model2(dataset_train, dataset_val, learning_rate=lr, epochs=epochs,
+							layers=layers, depth_weight=depth_weight)
 
 	end = timer()
 	print('Total training time: ', end - start)
@@ -154,9 +155,10 @@ def train_roidepth(augmentation=None, depth_weight=1):
 	config.VALIDATION_STEPS = 200
 
 	config.PREDICT_DEPTH = True
+	config.USE_MINI_MASK = False
 
-	epochs = 50
-	layers = "heads"  # options: 3+, 4+, 5+, heads, all
+	epochs = 20
+	layers = "4+"  # options: 3+, 4+, 5+, heads, all
 
 	model_maskdepth = MaskDepthRCNN(config)
 	model_maskdepth.cuda()
@@ -213,12 +215,14 @@ def train_solodepth(augmentation=None):
 	print('Total training time: ', end - start)
 
 
-def evaluate():
+def evaluate_solodepth():
 	config = sun.SunConfig()
-	SUN_DIR_test = '../SUNRGBD'
+	### Test set size is too big, 5000. Hence I changed to val!
+	SUN_DIR_test = '../SUNRGBD/train'
 
 	dataset_test = sun.SunDataset()
-	dataset_test.load_sun(SUN_DIR_test, "test")
+
+	dataset_test.load_sun(SUN_DIR_test, "val")
 	dataset_test.prepare()
 
 	print("--TEST--")
@@ -230,14 +234,15 @@ def evaluate():
 	depth_model = modellib.DepthCNN(config)
 	depth_model.cuda()
 
-	checkpoint_dir = 'checkpoints/sun20190729T1024/mask_rcnn_sun_0050.pth'
+	checkpoint_dir = 'checkpoints/sun20190727T1524/mask_rcnn_sun_0050.pth'
 	depth_model.load_state_dict(torch.load(checkpoint_dir))
 
-	test_datagenerator = modellib.data_generator_onlydepth(dataset_test, config, shuffle=True, augment=False, batch_size=1)
+	test_datagenerator = modellib.data_generator_onlydepth(dataset_test, config, shuffle=False, augment=False, batch_size=1)
 	errors = np.zeros(8)
 	step = 0
-	steps = 5000
-	for inputs in test_datagenerator:
+	steps = 1000
+	while step < steps:
+		inputs = next(test_datagenerator)
 		images = inputs[0]
 		gt_depths = inputs[2]
 
@@ -272,6 +277,84 @@ def evaluate():
 																								e[4], e[5], e[6], e[7]))
 
 
+def evaluate_maskrcnn():
+	config = sun.SunConfig()
+	SUN_DIR_test = '../SUNRGBD/train'
+
+	dataset_test = sun.SunDataset()
+	### Test set size is too big, 5000. Hence I changed to val!
+	dataset_test.load_sun(SUN_DIR_test, "val")
+	dataset_test.prepare()
+
+	print("--TEST--")
+	print("Image Count: {}".format(len(dataset_test.image_ids)))
+	print("Class Count: {}".format(dataset_test.num_classes))
+	for i, info in enumerate(dataset_test.class_info):
+		print("{:3}. {:50}".format(i, info['name']))
+
+	config.PREDICT_DEPTH = True
+	mask_model = modellib.MaskRCNN(config)
+	mask_model.cuda()
+
+	checkpoint_dir = 'checkpoints/sun20190801T2112/mask_rcnn_sun_0030.pth'
+	mask_model.load_state_dict(torch.load(checkpoint_dir))
+
+	test_datagenerator = modellib.data_generator(dataset_test, config, shuffle=False, augment=False, batch_size=1)
+	errors = np.zeros(8)
+	step = 0
+	steps = 1000
+	while step < steps:
+		inputs = next(test_datagenerator)
+		images = inputs[0]
+		image_metas = inputs[1]
+		rpn_match = inputs[2]
+		rpn_bbox = inputs[3]
+		gt_class_ids = inputs[4]
+		gt_boxes = inputs[5]
+		gt_masks = inputs[6]
+		gt_depths = inputs[7]
+
+		# Wrap in variables
+		images = Variable(images)
+		rpn_match = Variable(rpn_match)
+		rpn_bbox = Variable(rpn_bbox)
+		gt_class_ids = Variable(gt_class_ids)
+		gt_boxes = Variable(gt_boxes)
+		gt_masks = Variable(gt_masks)
+
+		images = images.cuda()
+		rpn_match = rpn_match.cuda()
+		rpn_bbox = rpn_bbox.cuda()
+		gt_class_ids = gt_class_ids.cuda()
+		gt_boxes = gt_boxes.cuda()
+		gt_masks = gt_masks.cuda()
+
+		detections, mrcnn_mask, depth_np = mask_model.predict([images, image_metas, gt_class_ids, gt_boxes, gt_masks], mode='inference')
+
+		depth_pred = depth_np.detach().cpu().numpy()[0,80:560,:]
+		depth_gt = gt_depths.cpu().numpy()[0, 80:560, :]
+
+		err = evaluateDepths(depth_pred, depth_gt, printInfo=False)
+		errors = errors + err
+		step += 1
+
+		if step %100 == 0:
+			print(" HERE: ", step)
+
+		# Break after 'steps' steps
+		if step == steps - 1:
+			break
+
+	e = errors / step
+	print("{:>10}, {:>10}, {:>10}, {:>10}, {:>10}, {:>10}, {:>10}, {:>10}".format('rel', 'rel_sqr', 'log_10', 'rmse',
+																				  'rmse_log', 'a1', 'a2', 'a3'))
+	print(
+		"{:10.4f}, {:10.4f}, {:10.4f}, {:10.4f}, {:10.4f}, {:10.4f}, {:10.4f}, {:10.4f}".format(e[0], e[1], e[2], e[3],
+																								e[4], e[5], e[6], e[7]))
+
+
+
+
 if __name__ == '__main__':
 
 	import warnings
@@ -282,6 +365,10 @@ if __name__ == '__main__':
 		warnings.simplefilter("ignore")
 		#train_solodepth(augmentation=None)
 		#evaluate()
-		train_maskrcnn(depth_weight=5)
-		#train_roidepth()
+		#train_maskrcnn(depth_weight=10)
 
+		print("ROI training!")
+		train_roidepth(depth_weight=10)
+
+		#print("Evaluate maskrcnn multitask on val:")
+		#evaluate_maskrcnn()
