@@ -1377,14 +1377,55 @@ def compute_mrcnn_mask_loss(config, target_masks, target_class_ids, pred_masks):
     return loss
 
 
-def compute_depth_loss(target_depth, pred_depth):
+def compute_depth_loss_L1(target_depth, pred_depth):
 
     # TODO: Modify for batch.
 
-    loss = l1LossMask(pred_depth[:, 80:560], target_depth[:, 80:560],
-                      (target_depth[:, 80:560] > 1e-4).float())
+    loss = l1LossMask(pred_depth, target_depth,
+                      (target_depth > 0).float())
 
     return loss
+
+def compute_depth_loss_L2(target_depth, pred_depth):
+
+    # TODO: Modify for batch.
+
+    loss = l2LossMask(pred_depth, target_depth,
+                      (target_depth > 0).float())
+
+    return loss
+
+def compute_depth_loss_berHu(target, pred):
+
+    # TODO: Modify for batch.
+
+    assert pred.dim() == target.dim(), "inconsistent dimensions"
+    diff = torch.abs(target - pred)
+    valid_mask = (target > 0).detach()
+    diff = diff[valid_mask]
+    huber_c = torch.max(diff) * 0.2
+
+    L1_mask = (diff <= huber_c).detach()
+    part1 = diff[L1_mask]
+
+    L2_mask = (diff > huber_c).detach()
+    diff2 = diff[L2_mask]
+    part2 = (diff2 ** 2 + huber_c ** 2) / (2 * huber_c)
+
+    loss = torch.cat((part1, part2)).mean()
+
+    return loss
+
+def compute_depth_loss(target_depth, pred_depth, config):
+
+    if config.DEPTH_LOSS == 'L1':
+        depth_loss = compute_depth_loss_L1(target_depth[:, 80:560], pred_depth[:, 80:560])
+    if config.DEPTH_LOSS == 'L2':
+        depth_loss = compute_depth_loss_L2(target_depth[:, 80:560], pred_depth[:, 80:560])
+    if config.DEPTH_LOSS == 'BERHU':
+        depth_loss = compute_depth_loss_berHu(target_depth[:, 80:560], pred_depth[:, 80:560])
+
+    return depth_loss
 
 
 def compute_losses(config, rpn_match, rpn_bbox, rpn_class_logits, rpn_pred_bbox, target_class_ids, mrcnn_class_logits, target_deltas, mrcnn_bbox, target_mask, mrcnn_mask, target_depth, pred_depth):
@@ -1397,7 +1438,7 @@ def compute_losses(config, rpn_match, rpn_bbox, rpn_class_logits, rpn_pred_bbox,
 
     depth_loss = torch.tensor([0], dtype=torch.float32)
     if config.PREDICT_DEPTH:
-        depth_loss = compute_depth_loss(target_depth, pred_depth)
+        depth_loss = compute_depth_loss(target_depth, pred_depth, config)
     return [rpn_class_loss, rpn_bbox_loss, mrcnn_class_loss, mrcnn_bbox_loss, mrcnn_mask_loss, depth_loss]
 
 
@@ -3437,7 +3478,7 @@ class DepthCNN(nn.Module):
             #print("gt shape: ", gt_depths.shape, " pred shape: ", pred_depth.shape)
 
             # Compute losses
-            loss = compute_depth_loss(gt_depths, pred_depth)
+            loss = compute_depth_loss(gt_depths, pred_depth, self.config)
 
             # Backpropagation
             loss.backward()
@@ -3487,7 +3528,7 @@ class DepthCNN(nn.Module):
                 pred_depth = self.predict([images], mode='training')[0]
 
                 # Compute losses
-                loss= compute_depth_loss(gt_depths, pred_depth)
+                loss= compute_depth_loss(gt_depths, pred_depth, self.config)
 
                 # Progress
                 if step % 25 == 0:

@@ -312,7 +312,6 @@ def l1LossMask(pred, gt, mask):
     """L1 loss with a mask"""        
     return torch.sum(torch.abs(pred - gt) * mask) / torch.clamp(mask.sum(), min=1)
 
-
 def invertDepth(depth, inverse=False):
     """Invert depth or not"""
     if inverse:

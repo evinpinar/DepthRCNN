@@ -19,6 +19,10 @@ class NYUConfig(Config):
 	# Give the configuration a recognizable name
 	NAME = "nyudepth"
 
+	# Depth Prediction options
+	PREDICT_DEPTH = True
+	DEPTH_LOSS = 'L1' # Options: L1, L2, BERHU
+
 	# We use a GPU with 12GB memory, which can fit two images.
 	# Adjust down if you use a smaller GPU.
 	IMAGES_PER_GPU = 1
@@ -180,8 +184,8 @@ class NYUDepthDataset(Dataset):
 		else:
 			for i in range(len(image_ids)):
 				ind = image_ids[i]
-				imgs.append(path_to_dataset + "/rgb/" + str(ind))
-				depths.append(path_to_dataset + "/depth/" + str(ind))
+				imgs.append(path_to_dataset + "/rgb_train_cropped/" + str(ind))
+				depths.append(path_to_dataset + "/depth_train_cropped/" + str(ind))
 
 		self.image_ids = image_ids
 		self.images = imgs
@@ -268,12 +272,11 @@ class NYUDepthDataset(Dataset):
 		depth = depth.astype(np.float32)
 
 
-
 		#w = 448
 		#image = image[:, :w, :]
 		#depth = depth[:w, :]
 
-		info = [image, depth]
+		info = [image, [], depth]
 
 		return info
 

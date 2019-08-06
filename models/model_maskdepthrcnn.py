@@ -613,11 +613,44 @@ class Depth(nn.Module):
 #  Loss Functions
 ############################################################
 
-def l1LossMask(pred, gt, mask):
-    """L1 loss with a mask"""
+def compute_depth_loss_L1(target_depth, pred_depth):
 
-    return torch.sum(torch.abs(pred - gt) * mask) / torch.clamp(mask.sum(), min=1)
+    # TODO: Modify for batch.
 
+    loss = l1LossMask(pred_depth, target_depth,
+                      (target_depth > 0).float())
+
+    return loss
+
+def compute_depth_loss_L2(target_depth, pred_depth):
+
+    # TODO: Modify for batch.
+
+    loss = l2LossMask(pred_depth, target_depth,
+                      (target_depth > 0).float())
+
+    return loss
+
+def compute_depth_loss_berHu(target, pred):
+
+    # TODO: Modify for batch.
+
+    assert pred.dim() == target.dim(), "inconsistent dimensions"
+    diff = torch.abs(target - pred)
+    valid_mask = (target > 0).detach()
+    diff = diff[valid_mask]
+    huber_c = torch.max(diff) * 0.2
+
+    L1_mask = (diff <= huber_c).detach()
+    part1 = diff[L1_mask]
+
+    L2_mask = (diff > huber_c).detach()
+    diff2 = diff[L2_mask]
+    part2 = (diff2 ** 2 + huber_c ** 2) / (2 * huber_c)
+
+    loss = torch.cat((part1, part2)).mean()
+
+    return loss
 
 def compute_mrcnn_depth_loss(config, target_depths, target_class_ids, pred_depths):
     """Depth loss for the masks head.
@@ -629,6 +662,7 @@ def compute_mrcnn_depth_loss(config, target_depths, target_class_ids, pred_depth
                     with values between 0 and 1.
         """
     if (target_class_ids > 0).sum() > 0:
+
         ## Only positive ROIs contribute to the loss. And only
         ## the class specific mask of each ROI.
         positive_ix = torch.nonzero(target_class_ids > 0)[:, 0]
@@ -645,7 +679,12 @@ def compute_mrcnn_depth_loss(config, target_depths, target_class_ids, pred_depth
         #loss = l1LossMask(y_pred[:, 3:25], y_true[:, 3:25],
         #				  (y_true[:, 3:25] > 1e-4).float())
 
-        loss = l1LossMask(y_pred, y_true, (y_true > 1e-4).float())
+        if config.DEPTH_LOSS == 'L1':
+            loss = compute_depth_loss_L1(y_true, y_pred)
+        if config.DEPTH_LOSS == 'L2':
+            loss = compute_depth_loss_L2(y_true, y_pred)
+        if config.DEPTH_LOSS == 'BERHU':
+            loss = compute_depth_loss_berHu(y_true, y_pred)
     else:
         loss = Variable(torch.FloatTensor([0]), requires_grad=False)
         if target_class_ids.is_cuda:

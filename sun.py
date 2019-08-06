@@ -52,6 +52,10 @@ class SunConfig(Config):
     # Give the configuration a recognizable name
     NAME = "sun"
 
+    # Depth Prediction options
+    PREDICT_DEPTH = True
+    DEPTH_LOSS = 'L1'  # Options: L1, L2, BERHU
+
     # We use a GPU with 12GB memory, which can fit two images.
     # Adjust down if you use a smaller GPU.
     IMAGES_PER_GPU = 1
