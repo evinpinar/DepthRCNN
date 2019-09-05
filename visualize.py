@@ -153,6 +153,9 @@ def display_instances(image, boxes, masks, class_ids, class_names,
 
         # Mask
         mask = masks[:, :, i]
+        #if mask.shape != image.shape:
+        #    print(mask.shape, image.shape)
+        #    mask = utils.expand_mask(boxes[i], mask, image.shape)
         masked_image = apply_mask(masked_image, mask, color)
 
         # Mask Polygon

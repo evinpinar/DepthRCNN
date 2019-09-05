@@ -55,13 +55,15 @@ class SunConfig(Config):
     # Depth Prediction options
     PREDICT_DEPTH = True
     DEPTH_LOSS = 'L1'  # Options: L1, L2, BERHU
+    DEPTH_THRESHOLD = 0.1
+    USE_ROI_MINI_MASK = False
 
     # We use a GPU with 12GB memory, which can fit two images.
     # Adjust down if you use a smaller GPU.
     IMAGES_PER_GPU = 1
 
     # Number of classes (including background)
-    NUM_CLASSES = 1 + 13  # Background + balloon
+    NUM_CLASSES = 1 + 37  # Background + balloon
 
     TRAIN_ROIS_PER_IMAGE = 200
 
@@ -86,19 +88,27 @@ class SunDataset(utils.Dataset):
         subset: Subset to load: train or val
         """
         # Add classes. We have only one class to add.
-        self.add_class("sun", 1, "bed")
-        self.add_class("sun", 2, "books")
-        self.add_class("sun", 3, "ceiling")
-        self.add_class("sun", 4, "chair")
-        self.add_class("sun", 5, "floor")
-        self.add_class("sun", 6, "furniture")
-        self.add_class("sun", 7, "objects")
-        self.add_class("sun", 8, "picture")
-        self.add_class("sun", 9, "sofa")
-        self.add_class("sun", 10, "table")
-        self.add_class("sun", 11, "tv")
-        self.add_class("sun", 12, "wall")
-        self.add_class("sun", 13, "window")
+
+        class_names = ['wall', 'floor', 'cabinet', 'bed', 'chair','sofa', 'table', 'door', 'window', 'bookshelf', 'picture', 'counter', 'blinds', 'desk', 'shelves', 'curtain', 'dresser', 'pillow', 'mirror', 'floo mat', 'clothes', 'ceiling', 'books', 'refridgerator', 'television', 'paper', 'towel', 'showe curtain', 'box', 'whiteboard', 'person', 'nigh stand', 'toilet', 'sink', 'lamp', 'bathtub', 'bag']
+
+        if len(class_names) == 0:
+            self.add_class("sun", 1, "bed")
+            self.add_class("sun", 2, "books")
+            self.add_class("sun", 3, "ceiling")
+            self.add_class("sun", 4, "chair")
+            self.add_class("sun", 5, "floor")
+            self.add_class("sun", 6, "furniture")
+            self.add_class("sun", 7, "objects")
+            self.add_class("sun", 8, "picture")
+            self.add_class("sun", 9, "sofa")
+            self.add_class("sun", 10, "table")
+            self.add_class("sun", 11, "tv")
+            self.add_class("sun", 12, "wall")
+            self.add_class("sun", 13, "window")
+        else:
+            n = len(class_names)
+            for i in range(n):
+                self.add_class("sun", i+1, class_names[i])
 
         # Train or validation dataset?
         assert subset in ["train", "val", "test"]

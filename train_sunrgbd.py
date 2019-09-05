@@ -114,24 +114,45 @@ def train_maskrcnn(augmentation=None, depth_weight=0):
 	config.TRAIN_ROIS_PER_IMAGE = 100
 	config.VALIDATION_STEPS = 200
 
-	config.PREDICT_DEPTH = True
+	config.PREDICT_DEPTH = False
 
 	mask_model = modellib.MaskRCNN(config)
 	mask_model.cuda()
 
-	#resnet_path = '../resnet50_imagenet.pth'
+	resnet_path = '../resnet50_imagenet.pth'
 	#mask_model.load_weights(resnet_path)
+	coco_path = '../mask_rcnn_coco.pth'
+	mask_model.load_weights(coco_path, iscoco=True)
 
-	checkpoint_dir = 'checkpoints/sun20190801T0836/mask_rcnn_sun_0040.pth'
-	mask_model.load_state_dict(torch.load(checkpoint_dir))
+	#checkpoint_dir = 'checkpoints/sun20190801T0836/mask_rcnn_sun_0040.pth'
+	#mask_model.load_state_dict(torch.load(checkpoint_dir))
 
 	start = timer()
 
-	epochs = 30
+	depth_weight = 0
+	epochs = 40
+	layers = "heads"  # options: 3+, 4+, 5+, heads, all
+	mask_model.train_model2(dataset_train, dataset_val, learning_rate=config.LEARNING_RATE, epochs=epochs,
+								 layers=layers, depth_weight=depth_weight)
+
+	config.LEARNING_RATE /= 10
+	epochs = 80
+	layers = "4+"  # options: 3+, 4+, 5+, heads, all
+	mask_model.train_model2(dataset_train, dataset_val, learning_rate=config.LEARNING_RATE, epochs=epochs,
+								 layers=layers, depth_weight=depth_weight)
+
+	epochs = 100
 	layers = "all"  # options: 3+, 4+, 5+, heads, all
-	lr = config.LEARNING_RATE/10
-	mask_model.train_model2(dataset_train, dataset_val, learning_rate=lr, epochs=epochs,
-							layers=layers, depth_weight=depth_weight)
+	mask_model.train_model2(dataset_train, dataset_val, learning_rate=config.LEARNING_RATE, epochs=epochs,
+								 layers=layers, depth_weight=depth_weight)
+
+	epochs = 120
+
+	layers = "heads"  # options: 3+, 4+, 5+, heads, all
+	mask_model.train_model2(dataset_train, dataset_val, learning_rate=config.LEARNING_RATE, epochs=epochs,
+								 layers=layers, depth_weight=depth_weight)
+
+
 
 	end = timer()
 	print('Total training time: ', end - start)
@@ -155,24 +176,44 @@ def train_roidepth(augmentation=None, depth_weight=1):
 	config.VALIDATION_STEPS = 200
 
 	config.PREDICT_DEPTH = True
-	config.USE_MINI_MASK = False
-
-	epochs = 20
-	layers = "4+"  # options: 3+, 4+, 5+, heads, all
+	depth_weight = 10
+	config.USE_MINI_MASK = True
+	config.DEPTH_LOSS = 'L1'  # Options: L1, L2, BERHU
 
 	model_maskdepth = MaskDepthRCNN(config)
 	model_maskdepth.cuda()
 
 	resnet_path = '../resnet50_imagenet.pth'
-	model_maskdepth.load_weights(resnet_path)
+	coco_path = '../mask_rcnn_coco.pth' # This is based on resnet 101
+	# model_maskdepth.load_weights(resnet_path)
+	model_maskdepth.load_weights(coco_path, iscoco=False)
 
-	#checkpoint_dir = 'checkpoints/nyudepth20190721T1816/mask_depth_rcnn_nyudepth_0025.pth'
+	#checkpoint_dir = 'checkpoints/sun20190903T1259/mask_depth_rcnn_sun_0020.pth'
 	#model_maskdepth.load_state_dict(torch.load(checkpoint_dir))
 
 
 	start = timer()
+
+
+	epochs = 20
+	layers = "5+"  # options: 3+, 4+, 5+, heads, all
 	model_maskdepth.train_model2(dataset_train, dataset_val, learning_rate=config.LEARNING_RATE, epochs=epochs,
-								layers=layers, depth_weight=depth_weight)
+								layers=layers, depth_weight=depth_weight, augmentation=augmentation)
+
+
+	epochs = 40
+	config.LEARNING_RATE /= 10
+	layers = "all"  # options: 3+, 4+, 5+, heads, all
+	model_maskdepth.train_model2(dataset_train, dataset_val, learning_rate=config.LEARNING_RATE, epochs=epochs,
+								 layers=layers, depth_weight=depth_weight, augmentation=augmentation)
+
+	'''
+	epochs = 40
+	layers = "5+"  # options: 3+, 4+, 5+, heads, all
+	model_maskdepth.train_model2(dataset_train, dataset_val, learning_rate=config.LEARNING_RATE, epochs=epochs,
+								 layers=layers, depth_weight=depth_weight, augmentation=augmentation)
+	'''
+
 	end = timer()
 	print('Total training time: ', end - start)
 
@@ -353,9 +394,38 @@ def evaluate_maskrcnn():
 																								e[4], e[5], e[6], e[7]))
 
 
-
-
 if __name__ == '__main__':
+
+
+	augmentation = iaa.Sometimes(.667, iaa.Sequential([
+		iaa.Fliplr(0.5),  # horizontal flips
+		# Small gaussian blur with random sigma between 0 and 0.25.
+		# But we only blur about 50% of all images.
+		iaa.Sometimes(0.5,
+					  iaa.GaussianBlur(sigma=(0, 0.25))
+					  ),
+		# Strengthen or weaken the contrast in each image.
+		iaa.ContrastNormalization((0.75, 1.5)),
+		# Add gaussian noise.
+		# For 50% of all images, we sample the noise once per pixel.
+		# For the other 50% of all images, we sample the noise per pixel AND
+		# channel. This can change the color (not only brightness) of the
+		# pixels.
+		iaa.AdditiveGaussianNoise(loc=0, scale=(0.0, 0.05 * 255)),
+		# Make some images brighter and some darker.
+		# In 20% of all cases, we sample the multiplier once per channel,
+		# which can end up changing the color of the images.
+		iaa.Multiply((0.8, 1.2)),
+		# Apply affine transformations to each image.
+		# Scale/zoom them, translate/move them, rotate them and shear them.
+		# iaa.Affine(
+		#	scale={"x": (0.8, 1.2), "y": (0.8, 1.2)},
+		#	translate_percent={"x": (-0.1, 0.1), "y": (-0.1, 0.1)},
+		#	rotate=(-5, 5),
+		#	#shear=(-8, 8)
+		# iaa.Crop(percent=(0, 0.1)),  # random crops
+		# )
+	], random_order=True))  # apply augmenters in random order
 
 	import warnings
 	#warnings.filterwarnings("ignore")
@@ -368,7 +438,7 @@ if __name__ == '__main__':
 		#train_maskrcnn(depth_weight=10)
 
 		print("ROI training!")
-		train_roidepth(depth_weight=10)
+		train_roidepth(augmentation)
 
 		#print("Evaluate maskrcnn multitask on val:")
 		#evaluate_maskrcnn()
