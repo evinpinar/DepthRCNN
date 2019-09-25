@@ -214,6 +214,7 @@ class Config(object):
 
     GLOBAL_MASK = False
     PREDICT_DEPTH = False
+    PREDICT_PLANE = False
 
     NUM_PARAMETER_CHANNELS = 0
 

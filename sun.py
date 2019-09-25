@@ -155,12 +155,16 @@ class SunDataset(utils.Dataset):
             depth_path = os.path.join(dataset_dir, depth_file_name)
             #depth = skimage.io.imread(depth_path)
 
+            normal_file_name= a['filename'].rsplit( ".", 1 )[ 0 ] +"_plane.npy"
+            normal_path = os.path.join(dataset_dir, normal_file_name)
+
 
             self.add_image(
                 "sun",
                 image_id=a['filename'],  # use file name as a unique image id
                 path=image_path,
                 depth_path=depth_path,
+                normal_path=normal_path,
                 width=width, height=height,
                 polygons=polygons,
                 class_ids=class_ids)
