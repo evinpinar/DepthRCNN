@@ -1150,7 +1150,6 @@ class Depth(nn.Module):
     def __init__(self, num_output_channels=1):
         super(Depth, self).__init__()
         self.num_output_channels = num_output_channels
-<<<<<<< HEAD
         self.conv1 = nn.Sequential(
             nn.Conv2d(256, 128, kernel_size=3, stride=1, padding=1),
             nn.BatchNorm2d(128, eps=0.001, momentum=0.01),
@@ -1217,8 +1216,6 @@ class Depth(nn.Module):
     def original__init__(self, num_output_channels=1):
         super(Depth, self).__init__()
         self.num_output_channels = num_output_channels
-=======
->>>>>>> c2946805b74b942682977c484d3475801b8a522b
         self.conv1 = nn.Sequential(
             nn.Conv2d(256, 128, kernel_size=3, stride=1, padding=1),
             nn.BatchNorm2d(128, eps=0.001, momentum=0.01),
@@ -1281,10 +1278,7 @@ class Depth(nn.Module):
         self.crop = True
         return
 
-<<<<<<< HEAD
     # Remove the skip connections from pyramid features
-=======
->>>>>>> c2946805b74b942682977c484d3475801b8a522b
     def forward(self, feature_maps):
         if self.crop:
             padding = 5
@@ -1292,7 +1286,6 @@ class Depth(nn.Module):
                 feature_maps[c] = feature_maps[c][:, :, padding * pow(2, c - 2):-padding * pow(2, c - 2)]
                 continue
             pass
-<<<<<<< HEAD
         ## print("FMap 0: ", feature_maps[0].shape)
         x = self.conv1(feature_maps[0])
         ## print("first conv of feature map: ", x.shape)
@@ -1340,8 +1333,6 @@ class Depth(nn.Module):
                 feature_maps[c] = feature_maps[c][:, :, padding * pow(2, c - 2):-padding * pow(2, c - 2)]
                 continue
             pass
-=======
->>>>>>> c2946805b74b942682977c484d3475801b8a522b
         # print("FMap 0: ", feature_maps[0].shape)
         x = self.conv1(feature_maps[0])
         # print("first conv of feature map: ", x.shape)
@@ -1381,10 +1372,7 @@ class Depth(nn.Module):
         return x
 
 
-<<<<<<< HEAD
 
-=======
->>>>>>> c2946805b74b942682977c484d3475801b8a522b
 class Plane(nn.Module):
     def __init__(self, num_output_channels=3):
         super(Depth, self).__init__()
@@ -1670,7 +1658,6 @@ def compute_depth_loss_berHu(target, pred, thresh=0):
     part2 = (diff2 ** 2 + huber_c ** 2) / (2 * huber_c)
 
     loss = torch.cat((part1, part2)).mean()
-<<<<<<< HEAD
 
     return loss
 
@@ -1731,44 +1718,6 @@ def compute_grad_depth_loss(target_depth, pred_depth):
 def compute_losses(config, rpn_match, rpn_bbox, rpn_class_logits, rpn_pred_bbox, target_class_ids, mrcnn_class_logits,
                    target_deltas, mrcnn_bbox, target_mask, mrcnn_mask, target_depth, pred_depth, target_plane,
                    pred_plane, edges):
-=======
-
-    return loss
-
-
-def compute_depth_loss(target_depth, pred_depth, config):
-    if config.DEPTH_LOSS == 'L1':
-        depth_loss = compute_depth_loss_L1(target_depth[:, 80:560], pred_depth[:, 80:560], config.DEPTH_THRESHOLD)
-    if config.DEPTH_LOSS == 'L2':
-        depth_loss = compute_depth_loss_L2(target_depth[:, 80:560], pred_depth[:, 80:560], config.DEPTH_THRESHOLD)
-    if config.DEPTH_LOSS == 'BERHU':
-        depth_loss = compute_depth_loss_berHu(target_depth[:, 80:560], pred_depth[:, 80:560], config.DEPTH_THRESHOLD)
-
-    return depth_loss
-
-
-def compute_plane_loss(target_plane, pred_plane, config):
-
-    #print(target_plane.shape, pred_plane.shape)
-    pred_n = pred_plane[ :, 80:560]
-    target_n = target_plane[0, :, 80:560]
-
-    #pred_n = pred_n.contiguous().view(-1, 3)
-    #target_n = target_n.contiguous().view(-1, 3)
-
-    #loss = F.mse_loss(pred_n, target_n)
-    ## L2_Mask_Loss is also possible!
-
-    loss = l2LossMask(pred_n, target_n,
-                      (target_n > 0).float())
-
-    return loss
-
-
-def compute_losses(config, rpn_match, rpn_bbox, rpn_class_logits, rpn_pred_bbox, target_class_ids, mrcnn_class_logits,
-                   target_deltas, mrcnn_bbox, target_mask, mrcnn_mask, target_depth, pred_depth, target_plane,
-                   pred_plane):
->>>>>>> c2946805b74b942682977c484d3475801b8a522b
     rpn_class_loss = compute_rpn_class_loss(rpn_match, rpn_class_logits)
     rpn_bbox_loss = compute_rpn_bbox_loss(rpn_bbox, rpn_match, rpn_pred_bbox)
     mrcnn_class_loss = compute_mrcnn_class_loss(target_class_ids, mrcnn_class_logits)
@@ -1782,7 +1731,6 @@ def compute_losses(config, rpn_match, rpn_bbox, rpn_class_logits, rpn_pred_bbox,
     plane_loss = torch.tensor([0], dtype=torch.float32)
     if config.PREDICT_PLANE:
         plane_loss = compute_plane_loss(target_plane, pred_plane, config)
-<<<<<<< HEAD
 
     return [rpn_class_loss, rpn_bbox_loss, mrcnn_class_loss, mrcnn_bbox_loss, mrcnn_mask_loss, depth_loss, plane_loss]
 
@@ -2541,766 +2489,6 @@ def data_generator_onlydepth(dataset, config, shuffle=True, augment=False, augme
 
 
 ############################################################
-=======
-
-    return [rpn_class_loss, rpn_bbox_loss, mrcnn_class_loss, mrcnn_bbox_loss, mrcnn_mask_loss, depth_loss, plane_loss]
-
-
-############################################################
-#  Data Generator
-############################################################
-
-def load_image_gt(dataset, config, image_id, augment=False, augmentation=None,
-                  use_mini_mask=False):
-    """Load and return ground truth data for an image (image, mask, bounding boxes).
-
-	augment: If true, apply random image augmentation. Currently, ony
-		horizontal flipping is offered.
-	use_mini_mask: If False, returns full-size masks that are the same height
-		and width as the original image. These can be big, for example
-		1024x1024x100 (for 100 instances). Mini masks are smaller, typically,
-		224x224 and are generated by extracting the bounding box of the
-		object and resizing it to MINI_MASK_SHAPE.
-
-	Returns:
-	image: [height, width, 3]
-	shape: the original shape of the image before resizing and cropping.
-	class_ids: [instance_count] Integer class IDs
-	bbox: [instance_count, (y1, x1, y2, x2)]
-	mask: [height, width, instance_count]. The height and width are those
-		of the image unless use_mini_mask is True, in which case they are
-		defined in MINI_MASK_SHAPE.
-	depth: [height, width, C]
-	"""
-    # Load image and mask
-    image = dataset.load_image(image_id)
-    mask, class_ids = dataset.load_mask(image_id)
-    depth = dataset.load_depth(image_id)
-    depth = depth / 1000
-
-    shape = image.shape
-    # image = cv2.resize(image, (depth.shape[1], depth.shape[0]))
-    image, window, scale, padding, crop = utils.resize_image(
-        image,
-        min_dim=config.IMAGE_MIN_DIM,
-        min_scale=config.IMAGE_MIN_SCALE,
-        max_dim=config.IMAGE_MAX_DIM,
-        mode=config.IMAGE_RESIZE_MODE)
-    mask = utils.resize_mask(mask, scale, padding, crop)
-    depth = utils.resize_depth(depth, scale, padding, crop)
-
-    if config.PREDICT_PLANE or config.PREDICT_NORMAL:
-        plane = dataset.load_normals(image_id)
-        plane, _, _, _, _ = utils.resize_image(
-            plane,
-            min_dim=config.IMAGE_MIN_DIM,
-            min_scale=config.IMAGE_MIN_SCALE,
-            max_dim=config.IMAGE_MAX_DIM,
-            mode=config.IMAGE_RESIZE_MODE)
-    else:
-        plane = np.zeros(shape)
-
-    # Random horizontal flips.
-    if augment:
-        if random.randint(0, 1):
-            image = np.fliplr(image)
-            mask = np.fliplr(mask)
-            depth = np.fliplr(depth)
-            plane = np.fliplr(plane)
-
-    if augmentation:
-        import imgaug
-
-        # Augmenters that are safe to apply to masks
-        # Some, such as Affine, have settings that make them unsafe, so always
-        # test your augmentation on masks
-        # MASK_AUGMENTERS = ["Sequential", "SomeOf", "OneOf", "Sometimes",
-        #				   "Fliplr", "Flipud", "CropAndPad",
-        #				   "Affine", "PiecewiseAffine"]
-
-        # def hook(images, augmenter, parents, default):
-        #	"""Determines which augmenters to apply to masks."""
-        #	return augmenter.__class__.__name__ in MASK_AUGMENTERS
-
-        # Store shapes before augmentation to compare
-        image_shape = image.shape
-        mask_shape = mask.shape
-        depth_shape = depth.shape
-        plane_shape = plane.shape
-        # Make augmenters deterministic to apply similarly to images and masks
-        det = augmentation.to_deterministic()
-        image = det.augment_image(image)
-        # depth = det.augment_image(depth, hooks=imgaug.HooksImages(activator=hook))
-        # mask = det.augment_image(mask.astype(np.uint8),
-        #						 hooks=imgaug.HooksImages(activator=hook))
-        mask = det.augment_image(mask.astype(np.uint8))
-        depth = det.augment_image(depth.astype(np.float32))
-        plane = det.augment_image(plane.astype(np.uint8))
-        # Verify that shapes didn't change
-        assert image.shape == image_shape, "Augmentation shouldn't change image size"
-        assert depth.shape == depth_shape, "Augmentation shouldn't change depth size"
-        assert mask.shape == mask_shape, "Augmentation shouldn't change mask size"
-        assert plane.shape == plane_shape, "Augmentation shouldn't change plane size"
-        # Change mask back to bool
-        mask = mask.astype(np.bool)
-
-    # Note that some boxes might be all zeros if the corresponding mask got cropped out.
-    # and here is to filter them out
-    _idx = np.sum(mask, axis=(0, 1)) > 0
-    mask = mask[:, :, _idx]
-    class_ids = class_ids[_idx]
-    # Bounding boxes. Note that some boxes might be all zeros
-    # if the corresponding mask got cropped out.
-    # bbox: [num_instances, (y1, x1, y2, x2)]
-    bbox = utils.extract_bboxes(mask)
-
-    # Active classes
-    # Different datasets have different classes, so track the
-    # classes supported in the dataset of this image.
-    active_class_ids = np.zeros([dataset.num_classes], dtype=np.int32)
-    source_class_ids = dataset.source_class_ids[dataset.image_info[image_id]["source"]]
-    active_class_ids[source_class_ids] = 1
-
-    # Resize masks to smaller size to reduce memory usage
-    # if use_mini_mask:
-    #	mask = utils.minimize_mask(bbox, mask, config.MINI_MASK_SHAPE)
-
-    # print("Load gt mask shape: ", mask.shape)
-
-    # Image meta data
-    image_meta = compose_image_meta(image_id, shape, window, active_class_ids)
-
-    return image, image_meta, class_ids, bbox, mask, depth, plane
-
-
-def build_rpn_targets(image_shape, anchors, gt_class_ids, gt_boxes, config):
-    """Given the anchors and GT boxes, compute overlaps and identify positive
-	anchors and deltas to refine them to match their corresponding GT boxes.
-
-	anchors: [num_anchors, (y1, x1, y2, x2)]
-	gt_class_ids: [num_gt_boxes] Integer class IDs.
-	gt_boxes: [num_gt_boxes, (y1, x1, y2, x2)]
-
-	Returns:
-	rpn_match: [N] (int32) matches between anchors and GT boxes.
-			   1 = positive anchor, -1 = negative anchor, 0 = neutral
-	rpn_bbox: [N, (dy, dx, log(dh), log(dw))] Anchor bbox deltas.
-	"""
-    # RPN Match: 1 = positive anchor, -1 = negative anchor, 0 = neutral
-    rpn_match = np.zeros([anchors.shape[0]], dtype=np.int32)
-    # RPN bounding boxes: [max anchors per image, (dy, dx, log(dh), log(dw))]
-    rpn_bbox = np.zeros((config.RPN_TRAIN_ANCHORS_PER_IMAGE, 4))
-
-    # Handle COCO crowds
-    # A crowd box in COCO is a bounding box around several instances. Exclude
-    # them from training. A crowd box is given a negative class ID.
-    crowd_ix = np.where(gt_class_ids < 0)[0]
-    if crowd_ix.shape[0] > 0:
-        # Filter out crowds from ground truth class IDs and boxes
-        non_crowd_ix = np.where(gt_class_ids > 0)[0]
-        crowd_boxes = gt_boxes[crowd_ix]
-        gt_class_ids = gt_class_ids[non_crowd_ix]
-        gt_boxes = gt_boxes[non_crowd_ix]
-        # Compute overlaps with crowd boxes [anchors, crowds]
-        crowd_overlaps = utils.compute_overlaps(anchors, crowd_boxes)
-        crowd_iou_max = np.amax(crowd_overlaps, axis=1)
-        no_crowd_bool = (crowd_iou_max < 0.001)
-    else:
-        # All anchors don't intersect a crowd
-        no_crowd_bool = np.ones([anchors.shape[0]], dtype=bool)
-
-    # Compute overlaps [num_anchors, num_gt_boxes]
-    overlaps = utils.compute_overlaps(anchors, gt_boxes)
-
-    # Match anchors to GT Boxes
-    # If an anchor overlaps a GT box with IoU >= 0.7 then it's positive.
-    # If an anchor overlaps a GT box with IoU < 0.3 then it's negative.
-    # Neutral anchors are those that don't match the conditions above,
-    # and they don't influence the loss function.
-    # However, don't keep any GT box unmatched (rare, but happens). Instead,
-    # match it to the closest anchor (even if its max IoU is < 0.3).
-    #
-    # 1. Set negative anchors first. They get overwritten below if a GT box is
-    # matched to them. Skip boxes in crowd areas.
-    anchor_iou_argmax = np.argmax(overlaps, axis=1)
-    anchor_iou_max = overlaps[np.arange(overlaps.shape[0]), anchor_iou_argmax]
-    rpn_match[(anchor_iou_max < 0.3) & (no_crowd_bool)] = -1
-    # 2. Set an anchor for each GT box (regardless of IoU value).
-    # TODO: If multiple anchors have the same IoU match all of them
-    gt_iou_argmax = np.argmax(overlaps, axis=0)
-    rpn_match[gt_iou_argmax] = 1
-    # 3. Set anchors with high overlap as positive.
-    rpn_match[anchor_iou_max >= 0.7] = 1
-
-    # Subsample to balance positive and negative anchors
-    # Don't let positives be more than half the anchors
-    ids = np.where(rpn_match == 1)[0]
-    extra = len(ids) - (config.RPN_TRAIN_ANCHORS_PER_IMAGE // 2)
-    if extra > 0:
-        # Reset the extra ones to neutral
-        ids = np.random.choice(ids, extra, replace=False)
-        rpn_match[ids] = 0
-    # Same for negative proposals
-    ids = np.where(rpn_match == -1)[0]
-    extra = len(ids) - (config.RPN_TRAIN_ANCHORS_PER_IMAGE -
-                        np.sum(rpn_match == 1))
-    if extra > 0:
-        # Rest the extra ones to neutral
-        ids = np.random.choice(ids, extra, replace=False)
-        rpn_match[ids] = 0
-
-    # For positive anchors, compute shift and scale needed to transform them
-    # to match the corresponding GT boxes.
-    ids = np.where(rpn_match == 1)[0]
-    ix = 0  # index into rpn_bbox
-    # TODO: use box_refinment() rather than duplicating the code here
-    for i, a in zip(ids, anchors[ids]):
-        # Closest gt box (it might have IoU < 0.7)
-        gt = gt_boxes[anchor_iou_argmax[i]]
-
-        # Convert coordinates to center plus width/height.
-        # GT Box
-        gt_h = gt[2] - gt[0]
-        gt_w = gt[3] - gt[1]
-        gt_center_y = gt[0] + 0.5 * gt_h
-        gt_center_x = gt[1] + 0.5 * gt_w
-        # Anchor
-        a_h = a[2] - a[0]
-        a_w = a[3] - a[1]
-        a_center_y = a[0] + 0.5 * a_h
-        a_center_x = a[1] + 0.5 * a_w
-
-        # Compute the bbox refinement that the RPN should predict.
-        rpn_bbox[ix] = [
-            (gt_center_y - a_center_y) / a_h,
-            (gt_center_x - a_center_x) / a_w,
-            np.log(gt_h / a_h),
-            np.log(gt_w / a_w),
-        ]
-        # Normalize
-        rpn_bbox[ix] /= config.RPN_BBOX_STD_DEV
-        ix += 1
-
-    return rpn_match, rpn_bbox
-
-
-class Dataset(torch.utils.data.Dataset):
-
-    def __init__(self, dataset, config, augment=True):
-        """A generator that returns images and corresponding target class ids,
-			bounding box deltas, and masks.
-
-			dataset: The Dataset object to pick data from
-			config: The model config object
-			shuffle: If True, shuffles the samples before every epoch
-			augment: If True, applies image augmentation to images (currently only
-					 horizontal flips are supported)
-
-			Returns a Python generator. Upon calling next() on it, the
-			generator returns two lists, inputs and outputs. The containtes
-			of the lists differs depending on the received arguments:
-			inputs list:
-			- images: [batch, H, W, C]
-			- image_metas: [batch, size of image meta]
-			- rpn_match: [batch, N] Integer (1=positive anchor, -1=negative, 0=neutral)
-			- rpn_bbox: [batch, N, (dy, dx, log(dh), log(dw))] Anchor bbox deltas.
-			- gt_class_ids: [batch, MAX_GT_INSTANCES] Integer class IDs
-			- gt_boxes: [batch, MAX_GT_INSTANCES, (y1, x1, y2, x2)]
-			- gt_masks: [batch, height, width, MAX_GT_INSTANCES]. The height and width
-						are those of the image unless use_mini_mask is True, in which
-						case they are defined in MINI_MASK_SHAPE.
-			- gt_depth: [batch, H, W, DEPTH_CHANNELS] The ground truth depth.
-
-			outputs list: Usually empty in regular training. But if detection_targets
-				is True then the outputs list contains target class_ids, bbox deltas,
-				and masks.
-			"""
-        self.b = 0  # batch item index
-        self.image_index = -1
-        self.image_ids = np.copy(dataset.image_ids)
-
-        self.dataset = dataset
-        self.config = config
-        self.augment = augment
-
-        # Anchors
-        # [anchor_count, (y1, x1, y2, x2)]
-
-        backbone_shapes = compute_backbone_shapes(config, config.IMAGE_SHAPE)
-        self.anchors = utils.generate_pyramid_anchors(config.RPN_ANCHOR_SCALES,
-                                                      config.RPN_ANCHOR_RATIOS,
-                                                      backbone_shapes,
-                                                      config.BACKBONE_STRIDES,
-                                                      config.RPN_ANCHOR_STRIDE)
-
-    def __getitem__(self, image_index):
-        # Get GT bounding boxes and masks for image.
-        image_id = self.image_ids[image_index]
-        image, image_metas, gt_class_ids, gt_boxes, gt_masks, gt_depth = \
-            load_image_gt(self.dataset, self.config, image_id, augment=self.augment,
-                          use_mini_mask=self.config.USE_MINI_MASK)
-
-        # Skip images that have no instances. This can happen in cases
-        # where we train on a subset of classes and the image doesn't
-        # have any of the classes we care about.
-        if not np.any(gt_class_ids > 0):
-            return None
-
-        # RPN Targets
-        rpn_match, rpn_bbox = build_rpn_targets(image.shape, self.anchors,
-                                                gt_class_ids, gt_boxes, self.config)
-
-        # If more instances than fits in the array, sub-sample from them.
-        if gt_boxes.shape[0] > self.config.MAX_GT_INSTANCES:
-            ids = np.random.choice(
-                np.arange(gt_boxes.shape[0]), self.config.MAX_GT_INSTANCES, replace=False)
-            gt_class_ids = gt_class_ids[ids]
-            gt_boxes = gt_boxes[ids]
-            gt_masks = gt_masks[:, :, ids]
-
-        # Add to batch
-        rpn_match = rpn_match[:, np.newaxis]
-        images = mold_image(image.astype(np.float32), self.config)
-
-        # Convert
-        images = torch.from_numpy(images.transpose(2, 0, 1)).float()
-        image_metas = torch.from_numpy(image_metas)
-        rpn_match = torch.from_numpy(rpn_match)
-        rpn_bbox = torch.from_numpy(rpn_bbox).float()
-        gt_class_ids = torch.from_numpy(gt_class_ids)
-        gt_boxes = torch.from_numpy(gt_boxes).float()
-        gt_masks = torch.from_numpy(gt_masks.astype(int).transpose(2, 0, 1)).float()
-
-        return images, image_metas, rpn_match, rpn_bbox, gt_class_ids, gt_boxes, gt_masks
-
-    def __len__(self):
-        return self.image_ids.shape[0]
-
-
-def data_generator(dataset, config, shuffle=True, augment=False, augmentation=None,
-                   random_rois=0, batch_size=1, detection_targets=False,
-                   no_augmentation_sources=None):
-    """A generator that returns images and corresponding target class ids,
-	bounding box deltas, and masks.
-	dataset: The Dataset object to pick data from
-	config: The model config object
-	shuffle: If True, shuffles the samples before every epoch
-	augment: (deprecated. Use augmentation instead). If true, apply random
-		image augmentation. Currently, only horizontal flipping is offered.
-	augmentation: Optional. An imgaug (https://github.com/aleju/imgaug) augmentation.
-		For example, passing imgaug.augmenters.Fliplr(0.5) flips images
-		right/left 50% of the time.
-	random_rois: If > 0 then generate proposals to be used to train the
-				 network classifier and mask heads. Useful if training
-				 the Mask RCNN part without the RPN.
-	batch_size: How many images to return in each call
-	detection_targets: If True, generate detection targets (class IDs, bbox
-		deltas, and masks). Typically for debugging or visualizations because
-		in trainig detection targets are generated by DetectionTargetLayer.
-	no_augmentation_sources: Optional. List of sources to exclude for
-		augmentation. A source is string that identifies a dataset and is
-		defined in the Dataset class.
-	Returns a Python generator. Upon calling next() on it, the
-	generator returns two lists, inputs and outputs. The contents
-	of the lists differs depending on the received arguments:
-	inputs list:
-	- images: [batch, H, W, C]
-	- image_meta: [batch, (meta data)] Image details. See compose_image_meta()
-	- rpn_match: [batch, N] Integer (1=positive anchor, -1=negative, 0=neutral)
-	- rpn_bbox: [batch, N, (dy, dx, log(dh), log(dw))] Anchor bbox deltas.
-	- gt_class_ids: [batch, MAX_GT_INSTANCES] Integer class IDs
-	- gt_boxes: [batch, MAX_GT_INSTANCES, (y1, x1, y2, x2)]
-	- gt_masks: [batch, height, width, MAX_GT_INSTANCES]. The height and width
-				are those of the image unless use_mini_mask is True, in which
-				case they are defined in MINI_MASK_SHAPE.
-	- depth: [batch, height, width]. The height and width
-			  are those of the image.
-	outputs list: Usually empty in regular training. But if detection_targets
-		is True then the outputs list contains target class_ids, bbox deltas,
-		and masks.
-	"""
-    b = 0  # batch item index
-    image_index = -1
-    image_ids = np.copy(dataset.image_ids)
-    error_count = 0
-    no_augmentation_sources = no_augmentation_sources or []
-
-    # Anchors
-    # [anchor_count, (y1, x1, y2, x2)]
-    backbone_shapes = compute_backbone_shapes(config, config.IMAGE_SHAPE)
-    anchors = utils.generate_pyramid_anchors(config.RPN_ANCHOR_SCALES,
-                                             config.RPN_ANCHOR_RATIOS,
-                                             backbone_shapes,
-                                             config.BACKBONE_STRIDES,
-                                             config.RPN_ANCHOR_STRIDE)
-
-    # Keras requires a generator to run indefinitely.
-    while True:
-        try:
-            # Increment index to pick next image. Shuffle if at the start of an epoch.
-            image_index = (image_index + 1) % len(image_ids)
-            if shuffle and image_index == 0:
-                np.random.shuffle(image_ids)
-
-            # Get GT bounding boxes and masks for image.
-            image_id = image_ids[image_index]
-
-            # If the image source is not to be augmented pass None as augmentation
-            if dataset.image_info[image_id]['source'] in no_augmentation_sources:
-                image, image_meta, gt_class_ids, gt_boxes, gt_masks, gt_depth, gt_plane = \
-                    load_image_gt(dataset, config, image_id, augment=augment,
-                                  use_mini_mask=config.USE_MINI_MASK)
-            else:
-                image, image_meta, gt_class_ids, gt_boxes, gt_masks, gt_depth, gt_plane = \
-                    load_image_gt(dataset, config, image_id, augment=augment,
-                                  use_mini_mask=config.USE_MINI_MASK, augmentation=augmentation)
-
-            # Skip images that have no instances. This can happen in cases
-            # where we train on a subset of classes and the image doesn't
-            # have any of the classes we care about.
-            if not np.any(gt_class_ids > 0):
-                continue
-
-            # RPN Targets
-            rpn_match, rpn_bbox = build_rpn_targets(image.shape, anchors,
-                                                    gt_class_ids, gt_boxes, config)
-
-            # Init batch arrays
-            if b == 0:
-                batch_image_meta = np.zeros(
-                    (batch_size,) + image_meta.shape, dtype=image_meta.dtype)
-                batch_rpn_match = np.zeros(
-                    [batch_size, anchors.shape[0], 1], dtype=rpn_match.dtype)
-                batch_rpn_bbox = np.zeros(
-                    [batch_size, config.RPN_TRAIN_ANCHORS_PER_IMAGE, 4], dtype=rpn_bbox.dtype)
-                batch_images = np.zeros(
-                    (batch_size,) + image.shape, dtype=np.float32)
-                batch_gt_class_ids = np.zeros(
-                    (batch_size, config.MAX_GT_INSTANCES), dtype=np.int32)
-                batch_gt_boxes = np.zeros(
-                    (batch_size, config.MAX_GT_INSTANCES, 4), dtype=np.int32)
-                batch_gt_masks = np.zeros(
-                    (batch_size, gt_masks.shape[0], gt_masks.shape[1],
-                     config.MAX_GT_INSTANCES), dtype=gt_masks.dtype)
-                batch_depth = np.zeros(
-                    (batch_size,) + gt_depth.shape, dtype=np.float32)
-                batch_plane = np.zeros(
-                    (batch_size,) + gt_plane.shape, dtype=np.float32)
-
-            # If more instances than fits in the array, sub-sample from them.
-            if gt_boxes.shape[0] > config.MAX_GT_INSTANCES:
-                ids = np.random.choice(
-                    np.arange(gt_boxes.shape[0]), config.MAX_GT_INSTANCES, replace=False)
-                gt_class_ids = gt_class_ids[ids]
-                gt_boxes = gt_boxes[ids]
-                gt_masks = gt_masks[:, :, ids]
-
-            # Add to batch
-            batch_image_meta[b] = image_meta
-            batch_rpn_match[b] = rpn_match[:, np.newaxis]
-            batch_rpn_bbox[b] = rpn_bbox
-            batch_images[b] = mold_image(image.astype(np.float32), config)
-            batch_gt_class_ids[b, :gt_class_ids.shape[0]] = gt_class_ids
-            batch_gt_boxes[b, :gt_boxes.shape[0]] = gt_boxes
-            batch_gt_masks[b, :, :, :gt_masks.shape[-1]] = gt_masks
-            batch_depth[b] = gt_depth.astype(np.float32)
-            batch_plane[b] = gt_plane.astype(np.float32)
-            b += 1
-
-            # Batch full?
-            if b >= batch_size:
-                # depth = np.zeros(1)
-
-                yield [torch.from_numpy(batch_images.transpose(0, 3, 1, 2)),
-                       torch.from_numpy(batch_image_meta), torch.from_numpy(batch_rpn_match),
-                       torch.from_numpy(batch_rpn_bbox.astype(np.float32)), torch.from_numpy(batch_gt_class_ids),
-                       torch.from_numpy(batch_gt_boxes.astype(np.float32)),
-                       torch.from_numpy(batch_gt_masks.astype(np.float32).transpose(0, 3, 1, 2)),
-                       torch.from_numpy(batch_depth.astype(np.float32)),
-                       torch.from_numpy(batch_plane.astype(np.float32).transpose(0, 3, 1, 2))]
-
-                # inputs = [batch_images, batch_image_meta, batch_rpn_match, batch_rpn_bbox,
-                #          batch_gt_class_ids, batch_gt_boxes, batch_gt_masks]
-                # outputs = []
-
-                # yield inputs, outputs
-
-                # start a new batch
-                b = 0
-        except (GeneratorExit, KeyboardInterrupt):
-            raise
-        except:
-            # Log it and skip the image
-            logging.exception("Error processing image {}".format(
-                dataset.image_info[image_id]))
-            error_count += 1
-            if error_count > 5:
-                raise
-
-
-def data_get_withid(dataset, config, image_id, shuffle=False, augment=False,
-                    random_rois=0, batch_size=1, detection_targets=False,
-                    no_augmentation_sources=None):
-    """A generator that returns images and corresponding target class ids,
-	bounding box deltas, and masks.
-	dataset: The Dataset object to pick data from
-	config: The model config object
-	shuffle: If True, shuffles the samples before every epoch
-	augment: (deprecated. Use augmentation instead). If true, apply random
-		image augmentation. Currently, only horizontal flipping is offered.
-	augmentation: Optional. An imgaug (https://github.com/aleju/imgaug) augmentation.
-		For example, passing imgaug.augmenters.Fliplr(0.5) flips images
-		right/left 50% of the time.
-	random_rois: If > 0 then generate proposals to be used to train the
-				 network classifier and mask heads. Useful if training
-				 the Mask RCNN part without the RPN.
-	batch_size: How many images to return in each call
-	detection_targets: If True, generate detection targets (class IDs, bbox
-		deltas, and masks). Typically for debugging or visualizations because
-		in trainig detection targets are generated by DetectionTargetLayer.
-	no_augmentation_sources: Optional. List of sources to exclude for
-		augmentation. A source is string that identifies a dataset and is
-		defined in the Dataset class.
-	Returns a Python generator. Upon calling next() on it, the
-	generator returns two lists, inputs and outputs. The contents
-	of the lists differs depending on the received arguments:
-	inputs list:
-	- images: [batch, H, W, C]
-	- image_meta: [batch, (meta data)] Image details. See compose_image_meta()
-	- rpn_match: [batch, N] Integer (1=positive anchor, -1=negative, 0=neutral)
-	- rpn_bbox: [batch, N, (dy, dx, log(dh), log(dw))] Anchor bbox deltas.
-	- gt_class_ids: [batch, MAX_GT_INSTANCES] Integer class IDs
-	- gt_boxes: [batch, MAX_GT_INSTANCES, (y1, x1, y2, x2)]
-	- gt_masks: [batch, height, width, MAX_GT_INSTANCES]. The height and width
-				are those of the image unless use_mini_mask is True, in which
-				case they are defined in MINI_MASK_SHAPE.
-	- depth: [batch, height, width]. The height and width
-			  are those of the image.
-	outputs list: Usually empty in regular training. But if detection_targets
-		is True then the outputs list contains target class_ids, bbox deltas,
-		and masks.
-	"""
-    b = 0  # batch item index
-    image_index = -1
-    image_ids = np.copy(dataset.image_ids)
-    error_count = 0
-    no_augmentation_sources = no_augmentation_sources or []
-
-    # Anchors
-    # [anchor_count, (y1, x1, y2, x2)]
-    backbone_shapes = compute_backbone_shapes(config, config.IMAGE_SHAPE)
-    anchors = utils.generate_pyramid_anchors(config.RPN_ANCHOR_SCALES,
-                                             config.RPN_ANCHOR_RATIOS,
-                                             backbone_shapes,
-                                             config.BACKBONE_STRIDES,
-                                             config.RPN_ANCHOR_STRIDE)
-
-    # Keras requires a generator to run indefinitely.
-    try:
-        # Increment index to pick next image. Shuffle if at the start of an epoch.
-        image_index = image_id
-        if shuffle and image_index == 0:
-            np.random.shuffle(image_ids)
-
-        # Get GT bounding boxes and masks for image.
-        image_id = image_ids[image_index]
-
-        # If the image source is not to be augmented pass None as augmentation
-        if dataset.image_info[image_id]['source'] in no_augmentation_sources:
-            image, image_meta, gt_class_ids, gt_boxes, gt_masks, gt_depth = \
-                load_image_gt(dataset, config, image_id, augment=augment,
-                              use_mini_mask=config.USE_MINI_MASK)
-        else:
-            image, image_meta, gt_class_ids, gt_boxes, gt_masks, gt_depth = \
-                load_image_gt(dataset, config, image_id, augment=augment,
-                              use_mini_mask=config.USE_MINI_MASK)
-
-        # RPN Targets
-        rpn_match, rpn_bbox = build_rpn_targets(image.shape, anchors,
-                                                gt_class_ids, gt_boxes, config)
-
-        # Init batch arrays
-        if b == 0:
-            batch_image_meta = np.zeros(
-                (batch_size,) + image_meta.shape, dtype=image_meta.dtype)
-            batch_rpn_match = np.zeros(
-                [batch_size, anchors.shape[0], 1], dtype=rpn_match.dtype)
-            batch_rpn_bbox = np.zeros(
-                [batch_size, config.RPN_TRAIN_ANCHORS_PER_IMAGE, 4], dtype=rpn_bbox.dtype)
-            batch_images = np.zeros(
-                (batch_size,) + image.shape, dtype=np.float32)
-            batch_gt_class_ids = np.zeros(
-                (batch_size, config.MAX_GT_INSTANCES), dtype=np.int32)
-            batch_gt_boxes = np.zeros(
-                (batch_size, config.MAX_GT_INSTANCES, 4), dtype=np.int32)
-            batch_gt_masks = np.zeros(
-                (batch_size, gt_masks.shape[0], gt_masks.shape[1],
-                 config.MAX_GT_INSTANCES), dtype=gt_masks.dtype)
-            batch_depth = np.zeros(
-                (batch_size,) + gt_depth.shape, dtype=np.float32)
-
-        # If more instances than fits in the array, sub-sample from them.
-        if gt_boxes.shape[0] > config.MAX_GT_INSTANCES:
-            ids = np.random.choice(
-                np.arange(gt_boxes.shape[0]), config.MAX_GT_INSTANCES, replace=False)
-            gt_class_ids = gt_class_ids[ids]
-            gt_boxes = gt_boxes[ids]
-            gt_masks = gt_masks[:, :, ids]
-
-        # Add to batch
-        batch_image_meta[b] = image_meta
-        batch_rpn_match[b] = rpn_match[:, np.newaxis]
-        batch_rpn_bbox[b] = rpn_bbox
-        batch_images[b] = mold_image(image.astype(np.float32), config)
-        batch_gt_class_ids[b, :gt_class_ids.shape[0]] = gt_class_ids
-        batch_gt_boxes[b, :gt_boxes.shape[0]] = gt_boxes
-        batch_gt_masks[b, :, :, :gt_masks.shape[-1]] = gt_masks
-        batch_depth[b] = gt_depth.astype(np.float32)
-        b += 1
-
-        # Batch full?
-        if b >= batch_size:
-            # depth = np.zeros(1)
-
-            return [torch.from_numpy(batch_images.transpose(0, 3, 1, 2)),
-                    torch.from_numpy(batch_image_meta), torch.from_numpy(batch_rpn_match),
-                    torch.from_numpy(batch_rpn_bbox.astype(np.float32)), torch.from_numpy(batch_gt_class_ids),
-                    torch.from_numpy(batch_gt_boxes.astype(np.float32)),
-                    torch.from_numpy(batch_gt_masks.astype(np.float32).transpose(0, 3, 1, 2)),
-                    torch.from_numpy(batch_depth.astype(np.float32))]
-
-            # inputs = [batch_images, batch_image_meta, batch_rpn_match, batch_rpn_bbox,
-            #          batch_gt_class_ids, batch_gt_boxes, batch_gt_masks]
-            # outputs = []
-
-            # yield inputs, outputs
-
-            # start a new batch
-            b = 0
-    except (GeneratorExit, KeyboardInterrupt):
-        raise
-    except:
-        # Log it and skip the image
-        logging.exception("Error processing image {}".format(
-            dataset.image_info[image_id]))
-        error_count += 1
-        if error_count > 5:
-            raise
-
-
-def data_generator_onlydepth(dataset, config, shuffle=True, augment=False, augmentation=None,
-                             random_rois=0, batch_size=1, detection_targets=False,
-                             no_augmentation_sources=None):
-    """A generator that returns images and corresponding target class ids,
-	bounding box deltas, and masks.
-	dataset: The Dataset object to pick data from
-	config: The model config object
-	shuffle: If True, shuffles the samples before every epoch
-	augment: (deprecated. Use augmentation instead). If true, apply random
-		image augmentation. Currently, only horizontal flipping is offered.
-	augmentation: Optional. An imgaug (https://github.com/aleju/imgaug) augmentation.
-		For example, passing imgaug.augmenters.Fliplr(0.5) flips images
-		right/left 50% of the time.
-	batch_size: How many images to return in each call
-	no_augmentation_sources: Optional. List of sources to exclude for
-		augmentation. A source is string that identifies a dataset and is
-		defined in the Dataset class.
-	Returns a Python generator. Upon calling next() on it, the
-	generator returns two lists, inputs and outputs. The contents
-	of the lists differs depending on the received arguments:
-	inputs list:
-	- images: [batch, H, W, C]
-	- image_meta: [batch, (meta data)] Image details. See compose_image_meta()
-	- depth: [batch, height, width]. The height and width
-			  are those of the image.
-	"""
-    b = 0  # batch item index
-    image_index = -1
-    image_ids = np.copy(dataset.image_ids)
-    error_count = 0
-    no_augmentation_sources = no_augmentation_sources or []
-
-    # Keras requires a generator to run indefinitely.
-    while True:
-        try:
-            # Increment index to pick next image. Shuffle if at the start of an epoch.
-            image_index = (image_index + 1) % len(image_ids)
-            if shuffle and image_index == 0:
-                np.random.shuffle(image_ids)
-
-            # Get GT bounding boxes and masks for image.
-            image_id = image_ids[image_index]
-
-            # If the image source is not to be augmented pass None as augmentation
-            if dataset.image_info[image_id]['source'] in no_augmentation_sources:
-                image, image_meta, gt_class_ids, gt_boxes, gt_masks, gt_depth = \
-                    load_image_gt(dataset, config, image_id, augment=augment,
-
-                                  use_mini_mask=config.USE_MINI_MASK)
-            else:
-                image, image_meta, gt_class_ids, gt_boxes, gt_masks, gt_depth = \
-                    load_image_gt(dataset, config, image_id, augment=augment,
-
-                                  use_mini_mask=config.USE_MINI_MASK)
-
-            # Skip images that have no instances. This can happen in cases
-            # where we train on a subset of classes and the image doesn't
-            # have any of the classes we care about.
-            if not np.any(gt_class_ids > 0):
-                continue
-
-            # Init batch arrays
-            if b == 0:
-                batch_image_meta = np.zeros(
-                    (batch_size,) + image_meta.shape, dtype=image_meta.dtype)
-                batch_images = np.zeros(
-                    (batch_size,) + image.shape, dtype=np.float32)
-                batch_depth = np.zeros(
-                    (batch_size,) + gt_depth.shape, dtype=np.float32)
-
-            # If more instances than fits in the array, sub-sample from them.
-            if gt_boxes.shape[0] > config.MAX_GT_INSTANCES:
-                ids = np.random.choice(
-                    np.arange(gt_boxes.shape[0]), config.MAX_GT_INSTANCES, replace=False)
-                gt_class_ids = gt_class_ids[ids]
-                gt_boxes = gt_boxes[ids]
-                gt_masks = gt_masks[:, :, ids]
-
-            # Add to batch
-            batch_image_meta[b] = image_meta
-            batch_images[b] = mold_image(image.astype(np.float32), config)
-            batch_depth[b] = gt_depth.astype(np.float32)
-            b += 1
-
-            # Batch full?
-            if b >= batch_size:
-                # depth = np.zeros(1)
-
-                yield [torch.from_numpy(batch_images.transpose(0, 3, 1, 2)),
-                       torch.from_numpy(batch_image_meta),
-                       torch.from_numpy(batch_depth.astype(np.float32))]
-
-                # inputs = [batch_images, batch_image_meta, batch_rpn_match, batch_rpn_bbox,
-                #          batch_gt_class_ids, batch_gt_boxes, batch_gt_masks]
-                # outputs = []
-
-                # yield inputs, outputs
-
-                # start a new batch
-                b = 0
-        except (GeneratorExit, KeyboardInterrupt):
-            raise
-        except:
-            # Log it and skip the image
-            logging.exception("Error processing image {}".format(
-                dataset.image_info[image_id]))
-            error_count += 1
-            if error_count > 5:
-                raise
-
-
-############################################################
->>>>>>> c2946805b74b942682977c484d3475801b8a522b
 #  MaskRCNN Class for Depth
 ############################################################
 
@@ -4263,7 +3451,6 @@ class MaskRCNN(nn.Module):
 ############################################################
 #  DepthCNN
 ############################################################
-<<<<<<< HEAD
 
 
 class DepthCNN(nn.Module):
@@ -4303,47 +3490,6 @@ class DepthCNN(nn.Module):
         resnet = ResNet("resnet50", stage5=True, numInputChannels=config.NUM_INPUT_CHANNELS)
         C1, C2, C3, C4, C5 = resnet.stages()
 
-=======
-
-
-class DepthCNN(nn.Module):
-    """Encapsulates the Depth CNN model functionality for
-	depth prediction from ResNet and FPN features.
-	"""
-
-    def __init__(self, config, model_dir='checkpoints'):
-        """
-		config: A Sub-class of the Config class
-		model_dir: Directory to save training logs and trained weights
-		"""
-        super(DepthCNN, self).__init__()
-        self.config = config
-        self.model_dir = model_dir
-        self.set_log_dir()
-        self.build(config=config)
-        self.initialize_weights()
-        self.loss_history = []
-        self.val_loss_history = []
-
-    def build(self, config):
-        """Build Mask R-CNN architecture.
-		"""
-
-        ## Image size must be dividable by 2 multiple times
-        h, w = config.IMAGE_SHAPE[:2]
-        if h / 2 ** 6 != int(h / 2 ** 6) or w / 2 ** 6 != int(w / 2 ** 6):
-            raise Exception("Image size must be dividable by 2 at least 6 times "
-                            "to avoid fractions when downscaling and upscaling."
-                            "For example, use 256, 320, 384, 448, 512, ... etc. ")
-
-        ## Build the shared convolutional layers.
-        ## Bottom-up Layers
-        ## Returns a list of the last layers of each stage, 5 in total.
-        ## Don't create the thead (stage 5), so we pick the 4th item in the list.
-        resnet = ResNet("resnet101", stage5=True, numInputChannels=config.NUM_INPUT_CHANNELS)
-        C1, C2, C3, C4, C5 = resnet.stages()
-
->>>>>>> c2946805b74b942682977c484d3475801b8a522b
         ## Top-down Layers
         ## TODO: add assert to varify feature map sizes match what's in config
         self.fpn = FPN(C1, C2, C3, C4, C5, out_channels=256, bilinear_upsampling=self.config.BILINEAR_UPSAMPLING)
@@ -4679,28 +3825,19 @@ class DepthCNN(nn.Module):
             batch_count += 1
 
             images = inputs[0]
-<<<<<<< HEAD
             edges = inputs[1]
-=======
->>>>>>> c2946805b74b942682977c484d3475801b8a522b
             gt_depths = inputs[2]
 
             # Wrap in variables
             images = Variable(images)
-<<<<<<< HEAD
             edges = Variable(edges)
-=======
->>>>>>> c2946805b74b942682977c484d3475801b8a522b
             gt_depths = Variable(gt_depths)
 
             # To GPU
             if self.config.GPU_COUNT:
                 images = images.cuda()
                 gt_depths = gt_depths.cuda()
-<<<<<<< HEAD
                 edges = edges.cuda()
-=======
->>>>>>> c2946805b74b942682977c484d3475801b8a522b
 
             # Run object detection
             pred_depth = self.predict([images], mode='training')[0]
@@ -4708,11 +3845,7 @@ class DepthCNN(nn.Module):
             # print("gt shape: ", gt_depths.shape, " pred shape: ", pred_depth.shape)
 
             # Compute losses
-<<<<<<< HEAD
             loss = compute_depth_loss(gt_depths, pred_depth, self.config, edges[0])
-=======
-            loss = compute_depth_loss(gt_depths, pred_depth, self.config)
->>>>>>> c2946805b74b942682977c484d3475801b8a522b
 
             # Backpropagation
             loss.backward()
@@ -4746,38 +3879,25 @@ class DepthCNN(nn.Module):
         with torch.no_grad():
             for inputs in datagenerator:
                 images = inputs[0]
-<<<<<<< HEAD
                 edges = inputs[1]
-=======
->>>>>>> c2946805b74b942682977c484d3475801b8a522b
                 gt_depths = inputs[2]
 
                 # Wrap in variables
                 images = Variable(images)
-<<<<<<< HEAD
                 edges = Variable(edges)
-=======
->>>>>>> c2946805b74b942682977c484d3475801b8a522b
                 gt_depths = Variable(gt_depths)
 
                 # To GPU
                 if self.config.GPU_COUNT:
                     images = images.cuda()
                     gt_depths = gt_depths.cuda()
-<<<<<<< HEAD
                     edges = edges.cuda()
-=======
->>>>>>> c2946805b74b942682977c484d3475801b8a522b
 
                 # Run object detection
                 pred_depth = self.predict([images], mode='training')[0]
 
                 # Compute losses
-<<<<<<< HEAD
                 loss = compute_depth_loss(gt_depths, pred_depth, self.config, edges[0])
-=======
-                loss = compute_depth_loss(gt_depths, pred_depth, self.config)
->>>>>>> c2946805b74b942682977c484d3475801b8a522b
 
                 # Progress
                 if step % 25 == 0:

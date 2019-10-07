@@ -176,13 +176,8 @@ def train_roidepth(augmentation=None, depth_weight=1):
     config.PREDICT_DEPTH = False
     depth_weight = 0
     config.USE_MINI_MASK = True
-<<<<<<< HEAD
     config.PREDICT_PLANE = False
     config.PREDICT_NORMAL = False
-=======
-    config.PREDICT_PLANE = True
-    config.PREDICT_NORMAL = True
->>>>>>> c2946805b74b942682977c484d3475801b8a522b
     config.DEPTH_LOSS = 'L1'  # Options: L1, L2, BERHU
 
     model_maskdepth = MaskDepthRCNN(config)

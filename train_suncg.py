@@ -51,11 +51,7 @@ def train_roidepth(augmentation=None, depth_weight=1):
     config.VALIDATION_STEPS = 1000
 
     config.PREDICT_DEPTH = True
-<<<<<<< HEAD
     depth_weight = 1
-=======
-    depth_weight = 2
->>>>>>> c2946805b74b942682977c484d3475801b8a522b
     config.USE_MINI_MASK = True
     config.PREDICT_PLANE = False
     config.PREDICT_NORMAL = False
@@ -66,17 +62,10 @@ def train_roidepth(augmentation=None, depth_weight=1):
 
     resnet_path = '../resnet50_imagenet.pth'
     coco_path = '../mask_rcnn_coco.pth'  # This is based on resnet 101
-<<<<<<< HEAD
     #model_maskdepth.load_weights(resnet_path)
     model_maskdepth.load_weights(coco_path, iscoco=False)
 
     #checkpoint_dir = 'checkpoints/suncg20190924T2014/mask_depth_rcnn_suncg_0020.pth'
-=======
-    model_maskdepth.load_weights(resnet_path)
-    # model_maskdepth.load_weights(coco_path, iscoco=False)
-
-    #checkpoint_dir = 'checkpoints/sun20190905T1116/mask_depth_rcnn_sun_0040.pth'
->>>>>>> c2946805b74b942682977c484d3475801b8a522b
     #model_maskdepth.load_state_dict(torch.load(checkpoint_dir))
 
     start = timer()
@@ -86,11 +75,7 @@ def train_roidepth(augmentation=None, depth_weight=1):
     model_maskdepth.train_model2(dataset_train, dataset_val, learning_rate=config.LEARNING_RATE, epochs=epochs,
                                  layers=layers, depth_weight=depth_weight, augmentation=augmentation)
 
-<<<<<<< HEAD
 
-=======
-    '''
->>>>>>> c2946805b74b942682977c484d3475801b8a522b
     epochs = 40
     layers = "all"  # options: 3+, 4+, 5+, heads, all
     model_maskdepth.train_model2(dataset_train, dataset_val, learning_rate=config.LEARNING_RATE, epochs=epochs,
@@ -103,10 +88,6 @@ def train_roidepth(augmentation=None, depth_weight=1):
     model_maskdepth.train_model2(dataset_train, dataset_val, learning_rate=config.LEARNING_RATE, epochs=epochs,
                                  layers=layers, depth_weight=depth_weight, augmentation=augmentation)
 
-<<<<<<< HEAD
-=======
-    '''
->>>>>>> c2946805b74b942682977c484d3475801b8a522b
 
     end = timer()
     print('Total training time: ', end - start)

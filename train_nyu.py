@@ -105,29 +105,18 @@ def train_depth(augmentation=None):
 	config.TRAIN_ROIS_PER_IMAGE = 100
 	config.VALIDATION_STEPS = 100
 
-<<<<<<< HEAD
 	config.DEPTH_THRESHOLD = 0
 	config.DEPTH_LOSS = 'L1' # Options: L1, L2, BERHU
 
 	depth_model = model.DepthCNN(config)
 	config.PREDICT_DEPTH = True
 	config.GRAD_LOSS = False
-=======
-	config.DEPTH_LOSS = 'BERHU' # Options: L1, L2, BERHU
-
-	depth_model = model.DepthCNN(config)
-	config.PREDICT_DEPTH = True
->>>>>>> c2946805b74b942682977c484d3475801b8a522b
 	depth_model.cuda()
 
 	resnet_path = '../resnet50_imagenet.pth'
 	depth_model.load_weights(resnet_path)
 
-<<<<<<< HEAD
 	#checkpoint_dir = 'checkpoints/nyudepth20191003T1927/mask_rcnn_nyudepth_0100.pth'
-=======
-	#checkpoint_dir = 'checkpoints/nyudepth20190816T0941/mask_rcnn_nyudepth_0100.pth'
->>>>>>> c2946805b74b942682977c484d3475801b8a522b
 	#depth_model.load_state_dict(torch.load(checkpoint_dir))
 
 	depth_model.train()
@@ -140,10 +129,7 @@ def train_depth(augmentation=None):
 	epochs = 200
 	depth_model.train_model(dataset_train, dataset_val, learning_rate=config.LEARNING_RATE, epochs=epochs)
 
-<<<<<<< HEAD
 
-=======
->>>>>>> c2946805b74b942682977c484d3475801b8a522b
 	end = timer()
 	print('Total training time: ', end - start)
 
@@ -185,20 +171,12 @@ def evaluate_solodepth():
 
 	dataset_val = nyu.NYUDepthDataset(path_to_dataset, 'test', config)
 
-<<<<<<< HEAD
 	config.DEPTH_THRESHOLD = 0
 	config.PREDICT_DEPTH = True
 	depth_model = model.DepthCNN(config)
 	depth_model.cuda()
 
 	checkpoint_dir = 'checkpoints/nyudepth20191005T1327/mask_rcnn_nyudepth_0200.pth'
-=======
-
-	depth_model = model.DepthCNN(config)
-	depth_model.cuda()
-
-	checkpoint_dir = 'checkpoints/nyudepth20190818T0821/mask_rcnn_nyudepth_0200.pth'
->>>>>>> c2946805b74b942682977c484d3475801b8a522b
 	depth_model.load_state_dict(torch.load(checkpoint_dir))
 
 	errors = []
@@ -236,11 +214,7 @@ def evaluate_solodepth():
 
 
 	print("{:>10}, {:>10}, {:>10}, {:>10}, {:>10}, {:>10}".format('rel', 'rel_sqr', 'rmse', 'rmse_log', 'a1', 'a2', 'a3'))
-<<<<<<< HEAD
 	print("{:10.4f}, {:10.4f}, {:10.4f}, {:10.4f}, {:10.4f}, {:10.4f}, {:10.4f}".format(e[0], e[1], e[2], e[3], e[4], e[5], e[6]))
-=======
-	print("{:10.4f}, {:10.4f}, {:10.4f}, {:10.4f}, {:10.4f}, {:10.4f}".format(e[0], e[1], e[2], e[3], e[4], e[5], e[6]))
->>>>>>> c2946805b74b942682977c484d3475801b8a522b
 
 
 
