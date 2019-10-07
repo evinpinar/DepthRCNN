@@ -312,7 +312,6 @@ def l1LossMask(pred, gt, mask):
     """L1 loss with a mask"""        
     return torch.sum(torch.abs(pred - gt) * mask) / torch.clamp(mask.sum(), min=1)
 
-
 def invertDepth(depth, inverse=False):
     """Invert depth or not"""
     if inverse:
@@ -322,6 +321,39 @@ def invertDepth(depth, inverse=False):
     else:
         return depth
 
+def grad_loss(grad_fake, grad_real):
+    return torch.sum(torch.mean(torch.abs(grad_real - grad_fake)))
+
+def imgrad(img):
+    # input of size = [B, C, H, W]
+
+    img = torch.mean(img, 1, True)
+    fx = np.array([[1, 0, -1], [2, 0, -2], [1, 0, -1]])
+    conv1 = nn.Conv2d(1, 1, kernel_size=3, stride=1, padding=1, bias=False)
+    weight = torch.from_numpy(fx).float().unsqueeze(0).unsqueeze(0)
+    if img.is_cuda:
+        weight = weight.cuda()
+    conv1.weight = nn.Parameter(weight)
+    grad_x = conv1(img)
+
+    fy = np.array([[1, 2, 1], [0, 0, 0], [-1, -2, -1]])
+    conv2 = nn.Conv2d(1, 1, kernel_size=3, stride=1, padding=1, bias=False)
+    weight = torch.from_numpy(fy).float().unsqueeze(0).unsqueeze(0)
+    if img.is_cuda:
+        weight = weight.cuda()
+    conv2.weight = nn.Parameter(weight)
+    grad_y = conv2(img)
+
+    #     grad = torch.sqrt(torch.pow(grad_x,2) + torch.pow(grad_y,2))
+
+    return grad_y, grad_x
+
+def imgrad_yx(img):
+    #N,_,_ = img.size()
+    N=1
+    C = 1
+    grad_y, grad_x = imgrad(img)
+    return torch.cat((grad_y.view(N,C,-1), grad_x.view(N,C,-1)), dim=1)
 
 class PlaneToDepth(torch.nn.Module):
     def __init__(self, normalized_K = True, normalized_flow = True, inverse_depth = True, W = 64, H = 48):

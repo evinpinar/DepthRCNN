@@ -13,6 +13,13 @@ import numpy as np
 import torch
 import cv2
 import itertools
+import skimage.color
+import skimage.io
+import scipy.misc
+import scipy.ndimage
+
+import warnings
+
 
 ############################################################
 #  Bounding Boxes
@@ -20,10 +27,10 @@ import itertools
 
 def extract_bboxes(mask):
     """Compute bounding boxes from masks.
-    mask: [height, width, num_instances]. Mask pixels are either 1 or 0.
+	mask: [height, width, num_instances]. Mask pixels are either 1 or 0.
 
-    Returns: bbox array [num_instances, (y1, x1, y2, x2)].
-    """
+	Returns: bbox array [num_instances, (y1, x1, y2, x2)].
+	"""
     boxes = np.zeros([mask.shape[-1], 4], dtype=np.int32)
     for i in range(mask.shape[-1]):
         m = mask[:, :, i]
@@ -46,14 +53,14 @@ def extract_bboxes(mask):
 
 def compute_iou(box, boxes, box_area, boxes_area):
     """Calculates IoU of the given box with the array of the given boxes.
-    box: 1D vector [y1, x1, y2, x2]
-    boxes: [boxes_count, (y1, x1, y2, x2)]
-    box_area: float. the area of 'box'
-    boxes_area: array of length boxes_count.
+	box: 1D vector [y1, x1, y2, x2]
+	boxes: [boxes_count, (y1, x1, y2, x2)]
+	box_area: float. the area of 'box'
+	boxes_area: array of length boxes_count.
 
-    Note: the areas are passed in rather than calculated here for
-          efficency. Calculate once in the caller to avoid duplicate work.
-    """
+	Note: the areas are passed in rather than calculated here for
+		  efficency. Calculate once in the caller to avoid duplicate work.
+	"""
     ## Calculate intersection areas
     y1 = np.maximum(box[0], boxes[:, 0])
     y2 = np.minimum(box[2], boxes[:, 2])
@@ -67,10 +74,10 @@ def compute_iou(box, boxes, box_area, boxes_area):
 
 def compute_overlaps(boxes1, boxes2):
     """Computes IoU overlaps between two sets of boxes.
-    boxes1, boxes2: [N, (y1, x1, y2, x2)].
+	boxes1, boxes2: [N, (y1, x1, y2, x2)].
 
-    For better performance, pass the largest set first and the smaller second.
-    """
+	For better performance, pass the largest set first and the smaller second.
+	"""
     ## Areas of anchors and GT boxes
     area1 = (boxes1[:, 2] - boxes1[:, 0]) * (boxes1[:, 3] - boxes1[:, 1])
     area2 = (boxes2[:, 2] - boxes2[:, 0]) * (boxes2[:, 3] - boxes2[:, 1])
@@ -83,10 +90,11 @@ def compute_overlaps(boxes1, boxes2):
         overlaps[:, i] = compute_iou(box2, boxes1, area2[i], area1)
     return overlaps
 
+
 def box_refinement(box, gt_box):
     """Compute refinement needed to transform box to gt_box.
-    box and gt_box are [N, (y1, x1, y2, x2)]
-    """
+	box and gt_box are [N, (y1, x1, y2, x2)]
+	"""
 
     height = box[:, 2] - box[:, 0]
     width = box[:, 3] - box[:, 1]
@@ -108,101 +116,646 @@ def box_refinement(box, gt_box):
 
 
 ############################################################
+#  Evaluation
+############################################################
+
+def compute_overlaps_masks(masks1, masks2):
+    """Computes IoU overlaps between two sets of masks.
+	masks1, masks2: [Height, Width, instances]
+	"""
+
+    # If either set of masks is empty return empty result
+    if masks1.shape[-1] == 0 or masks2.shape[-1] == 0:
+        return np.zeros((masks1.shape[-1], masks2.shape[-1]))
+    # flatten masks and compute their areas
+    masks1 = np.reshape(masks1 > .5, (-1, masks1.shape[-1])).astype(np.float32)
+    masks2 = np.reshape(masks2 > .5, (-1, masks2.shape[-1])).astype(np.float32)
+    area1 = np.sum(masks1, axis=0)
+    area2 = np.sum(masks2, axis=0)
+
+    # intersections and union
+    intersections = np.dot(masks1.T, masks2)
+    union = area1[:, None] + area2[None, :] - intersections
+    overlaps = intersections / union
+
+    return overlaps
+
+
+def trim_zeros(x):
+    """It's common to have tensors larger than the available data and
+	pad with zeros. This function removes rows that are all zeros.
+	x: [rows, columns].
+	"""
+    assert len(x.shape) == 2
+    return x[~np.all(x == 0, axis=1)]
+
+
+def compute_matches(gt_boxes, gt_class_ids, gt_masks,
+                    pred_boxes, pred_class_ids, pred_scores, pred_masks,
+                    iou_threshold=0.5, score_threshold=0.0):
+    """Finds matches between prediction and ground truth instances.
+	Returns:
+		gt_match: 1-D array. For each GT box it has the index of the matched
+				  predicted box.
+		pred_match: 1-D array. For each predicted box, it has the index of
+					the matched ground truth box.
+		overlaps: [pred_boxes, gt_boxes] IoU overlaps.
+	"""
+    # Trim zero padding
+    # TODO: cleaner to do zero unpadding upstream
+    gt_boxes = trim_zeros(gt_boxes)
+    gt_masks = gt_masks[..., :gt_boxes.shape[0]]
+    pred_boxes = trim_zeros(pred_boxes)
+    pred_scores = pred_scores[:pred_boxes.shape[0]]
+    # Sort predictions by score from high to low
+    indices = np.argsort(pred_scores)[::-1]
+    pred_boxes = pred_boxes[indices]
+    pred_class_ids = pred_class_ids[indices]
+    pred_scores = pred_scores[indices]
+    pred_masks = pred_masks[..., indices]
+
+    # Compute IoU overlaps [pred_masks, gt_masks]
+    overlaps = compute_overlaps_masks(pred_masks, gt_masks)
+
+    # Loop through predictions and find matching ground truth boxes
+    match_count = 0
+    pred_match = -1 * np.ones([pred_boxes.shape[0]])
+    gt_match = -1 * np.ones([gt_boxes.shape[0]])
+    for i in range(len(pred_boxes)):
+        # Find best matching ground truth box
+        # 1. Sort matches by score
+        sorted_ixs = np.argsort(overlaps[i])[::-1]
+        # 2. Remove low scores
+        low_score_idx = np.where(overlaps[i, sorted_ixs] < score_threshold)[0]
+        if low_score_idx.size > 0:
+            sorted_ixs = sorted_ixs[:low_score_idx[0]]
+        # 3. Find the match
+        for j in sorted_ixs:
+            # If ground truth box is already matched, go to next one
+            if gt_match[j] > -1:
+                continue
+            # If we reach IoU smaller than the threshold, end the loop
+            iou = overlaps[i, j]
+            if iou < iou_threshold:
+                break
+            # Do we have a match?
+            if pred_class_ids[i] == gt_class_ids[j]:
+                match_count += 1
+                gt_match[j] = i
+                pred_match[i] = j
+                break
+
+    return gt_match, pred_match, overlaps
+
+
+def compute_ap(gt_boxes, gt_class_ids, gt_masks,
+               pred_boxes, pred_class_ids, pred_scores, pred_masks,
+               iou_threshold=0.5):
+    """Compute Average Precision at a set IoU threshold (default 0.5).
+	Returns:
+	mAP: Mean Average Precision
+	precisions: List of precisions at different class score thresholds.
+	recalls: List of recall values at different class score thresholds.
+	overlaps: [pred_boxes, gt_boxes] IoU overlaps.
+	"""
+    # Get matches and overlaps
+    gt_match, pred_match, overlaps = compute_matches(
+        gt_boxes, gt_class_ids, gt_masks,
+        pred_boxes, pred_class_ids, pred_scores, pred_masks,
+        iou_threshold)
+
+    # Compute precision and recall at each prediction box step
+    precisions = np.cumsum(pred_match > -1) / (np.arange(len(pred_match)) + 1)
+    recalls = np.cumsum(pred_match > -1).astype(np.float32) / len(gt_match)
+
+    # Pad with start and end values to simplify the math
+    precisions = np.concatenate([[0], precisions, [0]])
+    recalls = np.concatenate([[0], recalls, [1]])
+
+    # Ensure precision values decrease but don't increase. This way, the
+    # precision value at each recall threshold is the maximum it can be
+    # for all following recall thresholds, as specified by the VOC paper.
+    for i in range(len(precisions) - 2, -1, -1):
+        precisions[i] = np.maximum(precisions[i], precisions[i + 1])
+
+    # Compute mean AP over recall range
+    indices = np.where(recalls[:-1] != recalls[1:])[0] + 1
+    mAP = np.sum((recalls[indices] - recalls[indices - 1]) *
+                 precisions[indices])
+
+    return mAP, precisions, recalls, overlaps
+
+
+def compute_ap_range(gt_box, gt_class_id, gt_mask,
+                     pred_box, pred_class_id, pred_score, pred_mask,
+                     iou_thresholds=None, verbose=1):
+    """Compute AP over a range or IoU thresholds. Default range is 0.5-0.95."""
+    # Default is 0.5 to 0.95 with increments of 0.05
+    iou_thresholds = iou_thresholds or np.arange(0.5, 1.0, 0.05)
+
+    # Compute AP over range of IoU thresholds
+    AP = []
+    for iou_threshold in iou_thresholds:
+        ap, precisions, recalls, overlaps = \
+            compute_ap(gt_box, gt_class_id, gt_mask,
+                       pred_box, pred_class_id, pred_score, pred_mask,
+                       iou_threshold=iou_threshold)
+        if verbose:
+            print("AP @{:.2f}:\t {:.3f}".format(iou_threshold, ap))
+        AP.append(ap)
+    AP = np.array(AP).mean()
+    if verbose:
+        print("AP @{:.2f}-{:.2f}:\t {:.3f}".format(
+            iou_thresholds[0], iou_thresholds[-1], AP))
+    return AP
+
+
+def compute_recall(pred_boxes, gt_boxes, iou):
+    """Compute the recall at the given IoU threshold. It's an indication
+	of how many GT boxes were found by the given prediction boxes.
+	pred_boxes: [N, (y1, x1, y2, x2)] in image coordinates
+	gt_boxes: [N, (y1, x1, y2, x2)] in image coordinates
+	"""
+    # Measure overlaps
+    overlaps = compute_overlaps(pred_boxes, gt_boxes)
+    iou_max = np.max(overlaps, axis=1)
+    iou_argmax = np.argmax(overlaps, axis=1)
+    positive_ids = np.where(iou_max >= iou)[0]
+    matched_gt_boxes = iou_argmax[positive_ids]
+
+    recall = len(set(matched_gt_boxes)) / gt_boxes.shape[0]
+    return recall, positive_ids
+
+
+############################################################
 #  Dataset
 ############################################################
-def resize_image(image, min_dim=None, max_dim=None, padding=False, interp='bilinear'):
-    """
-    Resizes an image keeping the aspect ratio.
 
-    min_dim: if provided, resizes the image such that it's smaller
-        dimension == min_dim
-    max_dim: if provided, ensures that the image longest side doesn't
-        exceed this value.
-    padding: If true, pads image with zeros so it's size is max_dim x max_dim
+class Dataset(object):
+    """The base class for dataset classes.
+	To use it, create a new class that adds functions specific to the dataset
+	you want to use. For example:
+	class CatsAndDogsDataset(Dataset):
+		def load_cats_and_dogs(self):
+			...
+		def load_mask(self, image_id):
+			...
+		def image_reference(self, image_id):
+			...
+	See COCODataset and ShapesDataset as examples.
+	"""
 
-    Returns:
-    image: the resized image
-    window: (y1, x1, y2, x2). If max_dim is provided, padding might
-        be inserted in the returned image. If so, this window is the
-        coordinates of the image part of the full image (excluding
-        the padding). The x2, y2 pixels are not included.
-    scale: The scale factor used to resize the image
-    padding: Padding added to the image [(top, bottom), (left, right), (0, 0)]
-    """
-    ## Default window (y1, x1, y2, x2) and default scale == 1.
+    def __init__(self, class_map=None):
+        self._image_ids = []
+        self.image_info = []
+        # Background is always the first class
+        self.class_info = [{"source": "", "id": 0, "name": "BG"}]
+        self.source_class_ids = {}
+
+    def add_class(self, source, class_id, class_name):
+        assert "." not in source, "Source name cannot contain a dot"
+        # Does the class exist already?
+        for info in self.class_info:
+            if info['source'] == source and info["id"] == class_id:
+                # source.class_id combination already available, skip
+                return
+        # Add the class
+        self.class_info.append({
+            "source": source,
+            "id": class_id,
+            "name": class_name,
+        })
+
+    def add_image(self, source, image_id, path, **kwargs):
+        image_info = {
+            "id": image_id,
+            "source": source,
+            "path": path,
+        }
+        image_info.update(kwargs)
+        self.image_info.append(image_info)
+
+    def image_reference(self, image_id):
+        """Return a link to the image in its source Website or details about
+		the image that help looking it up or debugging it.
+		Override for your dataset, but pass to this function
+		if you encounter images not in your dataset.
+		"""
+        return ""
+
+    def prepare(self, class_map=None):
+        """Prepares the Dataset class for use.
+		TODO: class map is not supported yet. When done, it should handle mapping
+			  classes from different datasets to the same class ID.
+		"""
+
+        def clean_name(name):
+            """Returns a shorter version of object names for cleaner display."""
+            return ",".join(name.split(",")[:1])
+
+        # Build (or rebuild) everything else from the info dicts.
+        self.num_classes = len(self.class_info)
+        self.class_ids = np.arange(self.num_classes)
+        self.class_names = [clean_name(c["name"]) for c in self.class_info]
+        self.num_images = len(self.image_info)
+        self._image_ids = np.arange(self.num_images)
+
+        # Mapping from source class and image IDs to internal IDs
+        self.class_from_source_map = {"{}.{}".format(info['source'], info['id']): id
+                                      for info, id in zip(self.class_info, self.class_ids)}
+        self.image_from_source_map = {"{}.{}".format(info['source'], info['id']): id
+                                      for info, id in zip(self.image_info, self.image_ids)}
+
+        # Map sources to class_ids they support
+        self.sources = list(set([i['source'] for i in self.class_info]))
+        self.source_class_ids = {}
+        # Loop over datasets
+        for source in self.sources:
+            self.source_class_ids[source] = []
+            # Find classes that belong to this dataset
+            for i, info in enumerate(self.class_info):
+                # Include BG class in all datasets
+                if i == 0 or source == info['source']:
+                    self.source_class_ids[source].append(i)
+
+    def map_source_class_id(self, source_class_id):
+        """Takes a source class ID and returns the int class ID assigned to it.
+		For example:
+		dataset.map_source_class_id("coco.12") -> 23
+		"""
+        return self.class_from_source_map[source_class_id]
+
+    def get_source_class_id(self, class_id, source):
+        """Map an internal class ID to the corresponding class ID in the source dataset."""
+        info = self.class_info[class_id]
+        assert info['source'] == source
+        return info['id']
+
+    def append_data(self, class_info, image_info):
+        self.external_to_class_id = {}
+        for i, c in enumerate(self.class_info):
+            for ds, id in c["map"]:
+                self.external_to_class_id[ds + str(id)] = i
+
+        # Map external image IDs to internal ones.
+        self.external_to_image_id = {}
+        for i, info in enumerate(self.image_info):
+            self.external_to_image_id[info["ds"] + str(info["id"])] = i
+
+    @property
+    def image_ids(self):
+        return self._image_ids
+
+    def __len__(self):
+        return len(self._image_ids)
+
+    def source_image_link(self, image_id):
+        """Returns the path or URL to the image.
+		Override this to return a URL to the image if it's available online for easy
+		debugging.
+		"""
+        return self.image_info[image_id]["path"]
+
+    def load_image(self, image_id):
+        """Load the specified image and return a [H,W,3] Numpy array.
+		"""
+        # Load image
+        image = skimage.io.imread(self.image_info[image_id]['path'])
+        # If grayscale. Convert to RGB for consistency.
+        if image.ndim != 3:
+            image = skimage.color.gray2rgb(image)
+        # If has an alpha channel, remove it for consistency
+        if image.shape[-1] == 4:
+            image = image[..., :3]
+        return image
+
+    def load_depth(self, image_id):
+        """Load the specified depth and return a [H,W] Numpy array.
+		"""
+        # Load depth
+        depth = skimage.io.imread(self.image_info[image_id]['depth_path'])
+        # depth = depth.astype('uint16')
+        # imgdepth = depth.astype('single') / 1000
+        # imgdepth = depth / 1000
+        return depth
+
+    def load_normals(self, image_id):
+        normals = np.load(self.image_info[image_id]['normal_path'])
+        return normals
+
+    def load_mask(self, image_id):
+        """Load instance masks for the given image.
+		Different datasets use different ways to store masks. Override this
+		method to load instance masks and return them in the form of am
+		array of binary masks of shape [height, width, instances].
+		Returns:
+			masks: A bool array of shape [height, width, instance count] with
+				a binary mask per instance.
+			class_ids: a 1D array of class IDs of the instance masks.
+		"""
+        # Override this function to load a mask from your dataset.
+        # Otherwise, it returns an empty mask.
+        mask = np.empty([0, 0, 0])
+        class_ids = np.empty([0], np.int32)
+        return mask, class_ids
+
+
+def resize_image(image, min_dim=None, max_dim=None, min_scale=None, mode="square"):
+    """Resizes an image keeping the aspect ratio unchanged.
+	min_dim: if provided, resizes the image such that it's smaller
+		dimension == min_dim
+	max_dim: if provided, ensures that the image longest side doesn't
+		exceed this value.
+	min_scale: if provided, ensure that the image is scaled up by at least
+		this percent even if min_dim doesn't require it.
+	mode: Resizing mode.
+		none: No resizing. Return the image unchanged.
+		square: Resize and pad with zeros to get a square image
+			of size [max_dim, max_dim].
+		pad64: Pads width and height with zeros to make them multiples of 64.
+			   If min_dim or min_scale are provided, it scales the image up
+			   before padding. max_dim is ignored in this mode.
+			   The multiple of 64 is needed to ensure smooth scaling of feature
+			   maps up and down the 6 levels of the FPN pyramid (2**6=64).
+		crop: Picks random crops from the image. First, scales the image based
+			  on min_dim and min_scale, then picks a random crop of
+			  size min_dim x min_dim. Can be used in training only.
+			  max_dim is not used in this mode.
+	Returns:
+	image: the resized image
+	window: (y1, x1, y2, x2). If max_dim is provided, padding might
+		be inserted in the returned image. If so, this window is the
+		coordinates of the image part of the full image (excluding
+		the padding). The x2, y2 pixels are not included.
+	scale: The scale factor used to resize the image
+	padding: Padding added to the image [(top, bottom), (left, right), (0, 0)]
+	"""
+    # Keep track of image dtype and return results in the same dtype
+    image_dtype = image.dtype
+    # Default window (y1, x1, y2, x2) and default scale == 1.
     h, w = image.shape[:2]
     window = (0, 0, h, w)
     scale = 1
+    padding = [(0, 0), (0, 0), (0, 0)]
+    crop = None
 
-    ## Scale?
+    if mode == "none":
+        return image, window, scale, padding, crop
+
+    # Scale?
     if min_dim:
         # Scale up but not down
         scale = max(1, min_dim / min(h, w))
-    ## Does it exceed max dim?
-    if max_dim:
+    if min_scale and scale < min_scale:
+        scale = min_scale
+
+    # Does it exceed max dim?
+    if max_dim and mode == "square":
         image_max = max(h, w)
         if round(image_max * scale) > max_dim:
             scale = max_dim / image_max
-    ## Resize image and mask
+
+    # Resize image using bilinear interpolation
     if scale != 1:
-        image = cv2.resize(image, (image.shape[1] * scale, image.shape[0] * scale))
-    ## Need padding?
-    if padding:
-        ## Get new height and width
+        image = skimage.transform.resize(
+            image, (round(h * scale), round(w * scale)),
+            order=1, mode="constant", preserve_range=True)
+
+    # Need padding or cropping?
+    if mode == "square":
+        # Get new height and width
         h, w = image.shape[:2]
-        top_pad = (min_dim - h) // 2
-        bottom_pad = min_dim - h - top_pad
+        top_pad = (max_dim - h) // 2
+        bottom_pad = max_dim - h - top_pad
         left_pad = (max_dim - w) // 2
         right_pad = max_dim - w - left_pad
         padding = [(top_pad, bottom_pad), (left_pad, right_pad), (0, 0)]
         image = np.pad(image, padding, mode='constant', constant_values=0)
         window = (top_pad, left_pad, h + top_pad, w + left_pad)
-    return image, window, scale, padding
+    elif mode == "pad64":
+        h, w = image.shape[:2]
+        # Both sides must be divisible by 64
+        assert min_dim % 64 == 0, "Minimum dimension must be a multiple of 64"
+        # Height
+        if h % 64 > 0:
+            max_h = h - (h % 64) + 64
+            top_pad = (max_h - h) // 2
+            bottom_pad = max_h - h - top_pad
+        else:
+            top_pad = bottom_pad = 0
+        # Width
+        if w % 64 > 0:
+            max_w = w - (w % 64) + 64
+            left_pad = (max_w - w) // 2
+            right_pad = max_w - w - left_pad
+        else:
+            left_pad = right_pad = 0
+        padding = [(top_pad, bottom_pad), (left_pad, right_pad), (0, 0)]
+        image = np.pad(image, padding, mode='constant', constant_values=0)
+        window = (top_pad, left_pad, h + top_pad, w + left_pad)
+    elif mode == "crop":
+        # Pick a random crop
+        h, w = image.shape[:2]
+        y = random.randint(0, (h - min_dim))
+        x = random.randint(0, (w - min_dim))
+        crop = (y, x, min_dim, min_dim)
+        image = image[y:y + min_dim, x:x + min_dim]
+        window = (0, 0, min_dim, min_dim)
+    else:
+        raise Exception("Mode {} not supported".format(mode))
+    return image.astype(image_dtype), window, scale, padding, crop
 
 
-def resize_mask(mask, scale, padding):
+def resize_mask(mask, scale, padding, crop=None):
     """Resizes a mask using the given scale and padding.
-    Typically, you get the scale and padding from resize_image() to
-    ensure both, the image and the mask, are resized consistently.
-
-    scale: mask scaling factor
-    padding: Padding to add to the mask in the form
-            [(top, bottom), (left, right), (0, 0)]
-    """
-    h, w = mask.shape[:2]
-    mask = np.pad(mask, padding, mode='constant', constant_values=0)
+	Typically, you get the scale and padding from resize_image() to
+	ensure both, the image and the mask, are resized consistently.
+	scale: mask scaling factor
+	padding: Padding to add to the mask in the form
+			[(top, bottom), (left, right), (0, 0)]
+	"""
+    # Suppress warning from scipy 0.13.0, the output shape of zoom() is
+    # calculated with round() instead of int()
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        mask = scipy.ndimage.zoom(mask, zoom=[scale, scale, 1], order=0)
+    if crop is not None:
+        y, x, h, w = crop
+        mask = mask[y:y + h, x:x + w]
+    else:
+        mask = np.pad(mask, padding, mode='constant', constant_values=0)
     return mask
 
 
-def minimize_mask(bbox, mask, mini_shape):
-    """Resize masks to a smaller version to cut memory load.
-    Mini-masks can then resized back to image scale using expand_masks()
+def resize_depth(mask, scale, padding, crop=None):
+    """Resizes a mask using the given scale and padding.
+	Typically, you get the scale and padding from resize_image() to
+	ensure both, the image and the mask, are resized consistently.
+	scale: mask scaling factor
+	padding: Padding to add to the mask in the form
+			[(top, bottom), (left, right), (0, 0)]
+	"""
+    # Suppress warning from scipy 0.13.0, the output shape of zoom() is
+    # calculated with round() instead of int()
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        mask = scipy.ndimage.zoom(mask, zoom=[scale, scale], order=0)
+    if crop is not None:
+        y, x, h, w = crop
+        mask = mask[y:y + h, x:x + w]
+    else:
+        mask = np.pad(mask, padding[:2], mode='constant', constant_values=0)
 
-    See inspect_data.ipynb notebook for more details.
-    """
+    return mask
+
+
+def resize_plane(plane, scale, padding, crop=None):
+    """Resizes a mask using the given scale and padding.
+	Typically, you get the scale and padding from resize_image() to
+	ensure both, the image and the mask, are resized consistently.
+	scale: mask scaling factor
+	padding: Padding to add to the mask in the form
+			[(top, bottom), (left, right), (0, 0)]
+	"""
+    # Suppress warning from scipy 0.13.0, the output shape of zoom() is
+    # calculated with round() instead of int()
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        plane = scipy.ndimage.zoom(plane, zoom=[scale, scale, 1], order=0)
+    if crop is not None:
+        y, x, h, w = crop
+        plane = plane[y:y + h, x:x + w]
+    else:
+        plane = np.pad(plane, padding[:2], mode='constant', constant_values=0)
+
+    return plane
+
+
+def minimize_mask(bbox, mask, mini_shape):
+    """Resize masks to a smaller version to reduce memory load.
+	Mini-masks can be resized back to image scale using expand_masks()
+	See inspect_data.ipynb notebook for more details.
+	"""
     mini_mask = np.zeros(mini_shape + (mask.shape[-1],), dtype=bool)
     for i in range(mask.shape[-1]):
-        m = mask[:, :, i]
+        # Pick slice and cast to bool in case load_mask() returned wrong dtype
+        m = mask[:, :, i].astype(bool)
         y1, x1, y2, x2 = bbox[i][:4]
         m = m[y1:y2, x1:x2]
         if m.size == 0:
             raise Exception("Invalid bounding box with area of zero")
-        m = cv2.resize(m.astype(np.uint8) * 255, mini_shape)
-        mini_mask[:, :, i] = np.where(m >= 128, 1, 0)
+        # Resize with bilinear interpolation
+        m = skimage.transform.resize(m, mini_shape, order=1, mode="constant")
+        mini_mask[:, :, i] = np.around(m).astype(np.bool)
+    return mini_mask
+
+def minimize_mask_square(bbox, mask, mini_shape):
+    """Resize masks to a smaller version to reduce memory load.
+	Mini-masks can be resized back to image scale using expand_masks()
+	See inspect_data.ipynb notebook for more details.
+	"""
+    mini_mask = np.zeros(mini_shape + (mask.shape[-1],), dtype=bool)
+    for i in range(mask.shape[-1]):
+        # Pick slice and cast to bool in case load_mask() returned wrong dtype
+        m = mask[:, :, i].astype(bool)
+        y1, x1, y2, x2 = bbox[i][:4]
+        m = m[y1:y2, x1:x2]
+        if m.size == 0:
+            raise Exception("Invalid bounding box with area of zero")
+        # Resize with bilinear interpolation
+        padding = (m.shape[0] - m.shape[1]) // 2
+        if padding > 0:
+            m = np.pad(m, ((0, 0), (padding, padding)), mode='constant', constant_values=0)
+        else:
+            m = np.pad(m, ((-padding, -padding), (0, 0)), mode='constant', constant_values=0)
+        m = skimage.transform.resize(m, mini_shape, order=1, mode="constant")
+        mini_mask[:, :, i] = np.around(m).astype(np.bool)
     return mini_mask
 
 def minimize_depth(bbox, depth, mini_shape):
     """Resize masks to a smaller version to cut memory load.
-    Mini-masks can then resized back to image scale using expand_masks()
+	Mini-masks can then resized back to image scale using expand_masks()
 
-    See inspect_data.ipynb notebook for more details.
-    """
-    mini_mask = np.zeros(mini_shape + (len(bbox),), dtype=np.float32)
-    for i in range(len(bbox)):
+	See inspect_data.ipynb notebook for more details.
+	"""
+    mini_depth = np.zeros(mini_shape + (len(bbox),), dtype=np.float32)
+    for i in range(depth.shape[-1]):
+        d = depth[:, :, i]
         y1, x1, y2, x2 = bbox[i][:4]
-        m = cv2.resize(depth[y1:y2, x1:x2], mini_shape, interpolation=cv2.INTER_NEAREST)
-        mini_mask[:, :, i] = m
-    return mini_mask
+        d = d[y1:y2, x1:x2]
+        if d.size == 0:
+            raise Exception("Invalid bounding box with area of zero")
+        d = skimage.transform.resize(d, mini_shape, order=1)
+        # d = cv2.resize(d, mini_shape, interpolation=cv2.INTER_NEAREST)
+        # m = cv2.resize(depth[y1:y2, x1:x2], mini_shape, interpolation=cv2.INTER_NEAREST)
+        mini_depth[:, :, i] = d
+    return mini_depth
+
+def minimize_depth_square(bbox, depth, mini_shape):
+    """Resize masks to a smaller version to cut memory load.
+	Mini-masks can then resized back to image scale using expand_masks()
+
+	See inspect_data.ipynb notebook for more details.
+	"""
+    mini_depth = np.zeros(mini_shape + (len(bbox),), dtype=np.float32)
+    for i in range(depth.shape[-1]):
+        d = depth[:, :, i]
+        y1, x1, y2, x2 = bbox[i][:4]
+        d = d[y1:y2, x1:x2]
+        if d.size == 0:
+            raise Exception("Invalid bounding box with area of zero")
+        padding = (d.shape[0] - d.shape[1]) // 2
+        if padding > 0:
+            d = np.pad(d, ((0, 0), (padding, padding)), mode='constant', constant_values=0)
+        else:
+            d = np.pad(d, ((-padding, -padding), (0, 0)), mode='constant', constant_values=0)
+        d = skimage.transform.resize(d, mini_shape, order=1)
+        # d = cv2.resize(d, mini_shape, interpolation=cv2.INTER_NEAREST)
+        # m = cv2.resize(depth[y1:y2, x1:x2], mini_shape, interpolation=cv2.INTER_NEAREST)
+        mini_depth[:, :, i] = d
+    return mini_depth
+
+
+def minimize_normal(bbox, normal, mini_shape):
+    """
+    Resize masks to a smaller version to cut memory load.
+	Mini-masks can then resized back to image scale using expand_masks()
+	See inspect_data.ipynb notebook for more details.
+	"""
+
+    mini_normal = np.zeros(mini_shape + (3,) + (len(bbox),), dtype=np.float32)
+    #print("mini shape: ", mini_shape, len(bbox))
+    #print("normal shape: ", normal.shape)
+    #print("mini normal shape: ", mini_normal.shape)
+    for i in range(normal.shape[-1]):
+        #print(i)
+        d = normal[:, :, :, i]
+        y1, x1, y2, x2 = bbox[i][:4]
+        d = d[y1:y2, x1:x2]
+        if d.size == 0:
+            raise Exception("Invalid bounding box with area of zero")
+        d = skimage.transform.resize(d, mini_shape, order=1)
+        # d = cv2.resize(d, mini_shape, interpolation=cv2.INTER_NEAREST)
+        # m = cv2.resize(depth[y1:y2, x1:x2], mini_shape, interpolation=cv2.INTER_NEAREST)
+        mini_normal[:, :, :, i] = d
+    return mini_normal
+
+
+def expand_mask(bbox, mini_mask, image_shape):
+    """Resizes mini masks back to image size. Reverses the change
+	of minimize_mask().
+	See inspect_data.ipynb notebook for more details.
+	"""
+    mask = np.zeros(image_shape[:2] + (mini_mask.shape[-1],), dtype=bool)
+    for i in range(mask.shape[-1]):
+        m = mini_mask[:, :, i]
+        y1, x1, y2, x2 = bbox[i][:4].astype(np.int32)
+        h = y2 - y1
+        w = x2 - x1
+        # Resize with bilinear interpolation
+        m = skimage.transform.resize(m, (h, w), order=1, mode="constant")
+        mask[y1:y2, x1:x2, i] = np.around(m).astype(np.bool)
+    return mask
 
 
 ## TODO: Build and use this function to reduce code duplication
@@ -212,12 +765,12 @@ def mold_mask(mask, config):
 
 def unmold_mask(mask, bbox, image_shape):
     """Converts a mask generated by the neural network into a format similar
-    to it's original shape.
-    mask: [height, width] of type float. A small, typically 28x28 mask.
-    bbox: [y1, x1, y2, x2]. The box to fit the mask in.
+	to it's original shape.
+	mask: [height, width] of type float. A small, typically 28x28 mask.
+	bbox: [y1, x1, y2, x2]. The box to fit the mask in.
 
-    Returns a binary mask with the same size as the original image.
-    """
+	Returns a binary mask with the same size as the original image.
+	"""
     threshold = 0.5
     y1, x1, y2, x2 = bbox
     mask = cv2.resize(mask.astype(np.float32), (x2 - x1, y2 - y1))
@@ -229,20 +782,39 @@ def unmold_mask(mask, bbox, image_shape):
     return full_mask
 
 
+def unmold_depth(depth, bbox, image_shape):
+    """Converts a mask generated by the neural network into a format similar
+	to it's original shape.
+	mask: [height, width] of type float. A small, typically 28x28 mask.
+	bbox: [y1, x1, y2, x2]. The box to fit the mask in.
+
+	Returns a binary mask with the same size as the original image.
+	"""
+    # threshold = 0.5
+    y1, x1, y2, x2 = bbox
+    depth = cv2.resize(depth.astype(np.float32), (x2 - x1, y2 - y1))
+    # mask = np.where(mask >= threshold, 1, 0).astype(np.uint8)
+
+    ## Put the mask in the right location.
+    full_depth = np.zeros(image_shape[:2], dtype=np.float32)
+    full_depth[y1:y2, x1:x2] = depth
+    return full_depth
+
+
 ############################################################
 #  Anchors
 ############################################################
 
 def generate_anchors(scales, ratios, shape, feature_stride, anchor_stride):
     """
-    scales: 1D array of anchor sizes in pixels. Example: [32, 64, 128]
-    ratios: 1D array of anchor ratios of width/height. Example: [0.5, 1, 2]
-    shape: [height, width] spatial shape of the feature map over which
-            to generate anchors.
-    feature_stride: Stride of the feature map relative to the image in pixels.
-    anchor_stride: Stride of anchors on the feature map. For example, if the
-        value is 2 then generate anchors for every other feature map pixel.
-    """
+	scales: 1D array of anchor sizes in pixels. Example: [32, 64, 128]
+	ratios: 1D array of anchor ratios of width/height. Example: [0.5, 1, 2]
+	shape: [height, width] spatial shape of the feature map over which
+			to generate anchors.
+	feature_stride: Stride of the feature map relative to the image in pixels.
+	anchor_stride: Stride of anchors on the feature map. For example, if the
+		value is 2 then generate anchors for every other feature map pixel.
+	"""
     ## Get all combinations of scales and ratios
     scales, ratios = np.meshgrid(np.array(scales), np.array(ratios))
     scales = scales.flatten()
@@ -275,14 +847,14 @@ def generate_anchors(scales, ratios, shape, feature_stride, anchor_stride):
 def generate_pyramid_anchors(scales, ratios, feature_shapes, feature_strides,
                              anchor_stride):
     """Generate anchors at different levels of a feature pyramid. Each scale
-    is associated with a level of the pyramid, but each ratio is used in
-    all levels of the pyramid.
+	is associated with a level of the pyramid, but each ratio is used in
+	all levels of the pyramid.
 
-    Returns:
-    anchors: [N, (y1, x1, y2, x2)]. All generated anchors in one array. Sorted
-        with the same order of the given scales. So, anchors of scale[0] come
-        first, then anchors of scale[1], and so on.
-    """
+	Returns:
+	anchors: [N, (y1, x1, y2, x2)]. All generated anchors in one array. Sorted
+		with the same order of the given scales. So, anchors of scale[0] come
+		first, then anchors of scale[1], and so on.
+	"""
     ## Anchors
     ## [anchor_count, (y1, x1, y2, x2)]
     anchors = []
@@ -299,20 +871,20 @@ def generate_pyramid_anchors(scales, ratios, feature_shapes, feature_strides,
 
 def compose_image_meta(image_id, image_shape, window, active_class_ids):
     """Takes attributes of an image and puts them in one 1D array. Use
-    parse_image_meta() to parse the values back.
+	parse_image_meta() to parse the values back.
 
-    image_id: An int ID of the image. Useful for debugging.
-    image_shape: [height, width, channels]
-    window: (y1, x1, y2, x2) in pixels. The area of the image where the real
-            image is (excluding the padding)
-    active_class_ids: List of class_ids available in the dataset from which
-        the image came. Useful if training on images from multiple datasets
-        where not all classes are present in all datasets.
-    """
+	image_id: An int ID of the image. Useful for debugging.
+	image_shape: [height, width, channels]
+	window: (y1, x1, y2, x2) in pixels. The area of the image where the real
+			image is (excluding the padding)
+	active_class_ids: List of class_ids available in the dataset from which
+		the image came. Useful if training on images from multiple datasets
+		where not all classes are present in all datasets.
+	"""
     meta = np.array(
-        [image_id] +            # size=1
-        list(image_shape) +     # size=3
-        list(window) +          # size=4 (y1, x1, y2, x2) in image cooredinates
+        [image_id] +  # size=1
+        list(image_shape) +  # size=3
+        list(window) +  # size=4 (y1, x1, y2, x2) in image cooredinates
         list(active_class_ids)  # size=num_classes
     )
     return meta
@@ -321,21 +893,21 @@ def compose_image_meta(image_id, image_shape, window, active_class_ids):
 ## Two functions (for Numpy and TF) to parse image_meta tensors.
 def parse_image_meta(meta):
     """Parses an image info Numpy array to its components.
-    See compose_image_meta() for more details.
-    """
+	See compose_image_meta() for more details.
+	"""
     image_id = meta[:, 0]
     image_shape = meta[:, 1:4]
-    window = meta[:, 4:8]   # (y1, x1, y2, x2) window of image in in pixels
+    window = meta[:, 4:8]  # (y1, x1, y2, x2) window of image in in pixels
     active_class_ids = meta[:, 8:]
     return image_id, image_shape, window, active_class_ids
 
 
 def parse_image_meta_graph(meta):
     """Parses a tensor that contains image attributes to its components.
-    See compose_image_meta() for more details.
+	See compose_image_meta() for more details.
 
-    meta: [batch, meta length] where meta length depends on NUM_CLASSES
-    """
+	meta: [batch, meta length] where meta length depends on NUM_CLASSES
+	"""
     image_id = meta[:, 0]
     image_shape = meta[:, 1:4]
     window = meta[:, 4:8]
@@ -345,16 +917,15 @@ def parse_image_meta_graph(meta):
 
 def mold_image(images, config):
     """Takes RGB images with 0-255 values and subtraces
-    the mean pixel and converts it to float. Expects image
-    colors in RGB order.
-    """
+	the mean pixel and converts it to float. Expects image
+	colors in RGB order.
+	"""
     return images.astype(np.float32) - config.MEAN_PIXEL
 
 
 def unmold_image(normalized_images, config):
     """Takes a image normalized with mold() and returns the original."""
     return (normalized_images + config.MEAN_PIXEL).astype(np.uint8)
-
 
 
 ## Visualization
@@ -382,10 +953,12 @@ class ColorPalette:
                                   [255, 230, 180],
                                   [255, 128, 0],
                                   [128, 255, 0],
-        ], dtype=np.uint8)
+                                  ], dtype=np.uint8)
 
         if numColors > self.colorMap.shape[0]:
-            self.colorMap = np.concatenate([self.colorMap, np.random.randint(255, size = (numColors - self.colorMap.shape[0], 3), dtype=np.uint8)], axis=0)
+            self.colorMap = np.concatenate(
+                [self.colorMap, np.random.randint(255, size=(numColors - self.colorMap.shape[0], 3), dtype=np.uint8)],
+                axis=0)
             pass
 
         return
@@ -398,11 +971,11 @@ class ColorPalette:
 
     def getColor(self, index):
         if index >= colorMap.shape[0]:
-            return np.random.randint(255, size = (3), dtype=np.uint8)
+            return np.random.randint(255, size=(3), dtype=np.uint8)
         else:
             return self.colorMap[index]
         pass
-    
+
 
 def writePointCloud(filename, point_cloud):
     with open(filename, 'w') as f:
@@ -437,10 +1010,12 @@ end_header
 
 ## The function to compute plane depths from plane parameters
 def calcPlaneDepths(planes, width, height, camera, max_depth=10):
-    urange = (np.arange(width, dtype=np.float32).reshape(1, -1).repeat(height, 0) / (width + 1) * (camera[4] + 1) - camera[2]) / camera[0]
-    vrange = (np.arange(height, dtype=np.float32).reshape(-1, 1).repeat(width, 1) / (height + 1) * (camera[5] + 1) - camera[3]) / camera[1]
+    urange = (np.arange(width, dtype=np.float32).reshape(1, -1).repeat(height, 0) / (width + 1) * (camera[4] + 1) -
+              camera[2]) / camera[0]
+    vrange = (np.arange(height, dtype=np.float32).reshape(-1, 1).repeat(width, 1) / (height + 1) * (camera[5] + 1) -
+              camera[3]) / camera[1]
     ranges = np.stack([urange, np.ones(urange.shape), -vrange], axis=-1)
-    
+
     planeOffsets = np.linalg.norm(planes, axis=-1, keepdims=True)
     planeNormals = planes / np.maximum(planeOffsets, 1e-4)
 
@@ -452,12 +1027,15 @@ def calcPlaneDepths(planes, width, height, camera, max_depth=10):
         pass
     return planeDepths
 
+
 ## The function to compute plane XYZ from plane parameters
 def calcPlaneXYZ(planes, width, height, camera, max_depth=10):
-    urange = (np.arange(width, dtype=np.float32).reshape(1, -1).repeat(height, 0) / (width + 1) * (camera[4] + 1) - camera[2]) / camera[0]
-    vrange = (np.arange(height, dtype=np.float32).reshape(-1, 1).repeat(width, 1) / (height + 1) * (camera[5] + 1) - camera[3]) / camera[1]
+    urange = (np.arange(width, dtype=np.float32).reshape(1, -1).repeat(height, 0) / (width + 1) * (camera[4] + 1) -
+              camera[2]) / camera[0]
+    vrange = (np.arange(height, dtype=np.float32).reshape(-1, 1).repeat(width, 1) / (height + 1) * (camera[5] + 1) -
+              camera[3]) / camera[1]
     ranges = np.stack([urange, np.ones(urange.shape), -vrange], axis=-1)
-    
+
     planeOffsets = np.linalg.norm(planes, axis=-1, keepdims=True)
     planeNormals = planes / np.maximum(planeOffsets, 1e-4)
 
@@ -472,7 +1050,6 @@ def calcPlaneXYZ(planes, width, height, camera, max_depth=10):
 
 ## Compute surface normal from depth
 def calcNormal(depth, camera):
-
     height = depth.shape[0]
     width = depth.shape[1]
 
@@ -486,7 +1063,6 @@ def calcNormal(depth, camera):
     Z = -depth * vrange
 
     points = np.stack([X, Y, Z], axis=2).reshape(-1, 3)
-
 
     if True:
         if width > 300:
@@ -519,7 +1095,7 @@ def calcNormal(depth, camera):
                     normals.append(normals[-1])
                 else:
                     normals.append([0, -1, 0])
-                    pass                    
+                    pass
             continue
         normal = np.array(normals).reshape((height, width, 3))
     else:
@@ -534,7 +1110,7 @@ def calcNormal(depth, camera):
         neigh.fit(points)
 
         distances, neighbors = neigh.kneighbors(points)
-        
+
         for i in range(len(points)):
             XYZ = points[neighbors[i][1:number_neighbors]]
 
@@ -542,7 +1118,7 @@ def calcNormal(depth, camera):
             b = np.transpose(XYZ - average)
             cov = np.cov(b)
             e_val, e_vect = eigh(cov, overwrite_a=True, overwrite_b=True)
-            norm =  e_vect[:,0]
+            norm = e_vect[:, 0]
             normals[i] = norm
             continue
         normal = normals.reshape((height, width, 3))
@@ -557,7 +1133,8 @@ def drawSegmentationImage(segmentations, numColors=42, blackIndex=-1, blackThres
         numColors = max(numColors, segmentations.max() + 2)
     else:
         if blackThreshold > 0:
-            segmentations = np.concatenate([segmentations, np.ones((segmentations.shape[0], segmentations.shape[1], 1)) * blackThreshold], axis=2)
+            segmentations = np.concatenate(
+                [segmentations, np.ones((segmentations.shape[0], segmentations.shape[1], 1)) * blackThreshold], axis=2)
             blackIndex = segmentations.shape[2] - 1
             pass
 
@@ -578,11 +1155,13 @@ def drawSegmentationImage(segmentations, numColors=42, blackIndex=-1, blackThres
     segmentation = segmentation.astype(np.int32)
     return randomColor[segmentation.reshape(-1)].reshape((height, width, 3))
 
+
 ## Draw depth image
 def drawDepthImage(depth, maxDepth=5):
     depthImage = np.clip(depth / maxDepth * 255, 0, 255).astype(np.uint8)
     depthImage = cv2.applyColorMap(255 - depthImage, colormap=cv2.COLORMAP_JET)
     return depthImage
+
 
 ## Draw normal image
 def drawNormalImage(normal):
@@ -590,9 +1169,11 @@ def drawNormalImage(normal):
     normalImage = normalImage[:, :, ::-1]
     return normalImage
 
+
 ## Draw depth image
 def drawMaskImage(mask):
     return (np.clip(mask * 255, 0, 255)).astype(np.uint8)
+
 
 ## Draw flow image
 def drawFlowImage(flow):
@@ -605,11 +1186,14 @@ def drawFlowImage(flow):
     P = V * (1 - S)
     Q = V * (1 - S * F)
     T = V * (1 - S * (1 - F))
-    images = np.stack([np.stack([P, T, V], axis=-1), np.stack([P, V, Q], axis=-1), np.stack([T, V, P], axis=-1), np.stack([V, Q, P], axis=-1), np.stack([V, P, T], axis=-1), np.stack([Q, P, V], axis=-1)], axis=-1)
+    images = np.stack([np.stack([P, T, V], axis=-1), np.stack([P, V, Q], axis=-1), np.stack([T, V, P], axis=-1),
+                       np.stack([V, Q, P], axis=-1), np.stack([V, P, T], axis=-1), np.stack([Q, P, V], axis=-1)],
+                      axis=-1)
     labels = ((H + 2 * np.pi) // (np.pi / 3)).astype(np.int32) % 6
     image = np.sum(images * np.expand_dims(np.expand_dims(labels, axis=-1) == np.arange(6, dtype=np.int32), 2), axis=-1)
     image = (image * 255).astype(np.uint8)
     return image
+
 
 ## Fit a 3D plane from points
 def fitPlane(points):
@@ -618,6 +1202,7 @@ def fitPlane(points):
     else:
         return np.linalg.lstsq(points, np.ones(points.shape[0]))[0]
     return
+
 
 ## Run PlaneNet inference
 def predictPlaneNet(image):
@@ -629,10 +1214,11 @@ def predictPlaneNet(image):
 
 
 ## Clean segmentation
-def cleanSegmentation(image, planes, plane_info, segmentation, depth, camera, planeAreaThreshold=200, planeWidthThreshold=10, depthDiffThreshold=0.1, validAreaThreshold=0.5, brightThreshold=20, confident_labels={}, return_plane_depths=False):
-
+def cleanSegmentation(image, planes, plane_info, segmentation, depth, camera, planeAreaThreshold=200,
+                      planeWidthThreshold=10, depthDiffThreshold=0.1, validAreaThreshold=0.5, brightThreshold=20,
+                      confident_labels={}, return_plane_depths=False):
     planeDepths = calcPlaneDepths(planes, segmentation.shape[1], segmentation.shape[0], camera).transpose((2, 0, 1))
-    
+
     newSegmentation = np.full(segmentation.shape, fill_value=-1)
     validMask = np.logical_and(np.linalg.norm(image, axis=-1) > brightThreshold, depth > 1e-4)
     depthDiffMask = np.logical_or(np.abs(planeDepths - depth) < depthDiffThreshold, depth < 1e-4)
@@ -683,13 +1269,13 @@ def cleanSegmentation(image, planes, plane_info, segmentation, depth, camera, pl
     return newSegmentation
 
 
-
-def getLayout(planes, depth, plane_depths, plane_info, segmentation, camera, layout_labels={}, return_segmentation=True, get_boundary=True):
+def getLayout(planes, depth, plane_depths, plane_info, segmentation, camera, layout_labels={}, return_segmentation=True,
+              get_boundary=True):
     parallelThreshold = np.cos(np.deg2rad(30))
-    
+
     layoutSegmentation = np.full(segmentation.shape, fill_value=-1)
 
-    layoutPlanePoints = []    
+    layoutPlanePoints = []
     layoutPlaneMasks = []
     layoutPlaneIndices = []
     for planeIndex, info in enumerate(plane_info):
@@ -699,12 +1285,12 @@ def getLayout(planes, depth, plane_depths, plane_info, segmentation, camera, lay
         ys, xs = mask.nonzero()
         if len(xs) < depth.shape[0] * depth.shape[1] * 0.02:
             continue
-        layoutSegmentation[mask] = len(layoutPlaneIndices)        
+        layoutSegmentation[mask] = len(layoutPlaneIndices)
         layoutPlanePoints.append(np.stack([xs, ys], axis=-1))
         layoutPlaneMasks.append(mask)
         layoutPlaneIndices.append(planeIndex)
         continue
-        
+
     if len(layoutPlaneIndices) == 0:
         if get_boundary:
             if return_segmentation:
@@ -718,17 +1304,16 @@ def getLayout(planes, depth, plane_depths, plane_info, segmentation, camera, lay
                 return {}
             pass
         pass
-            
+
     layoutPlaneInfo = zip(layoutPlanePoints, layoutPlaneMasks, layoutPlaneIndices)
-    layoutPlaneInfo = sorted(layoutPlaneInfo, key=lambda x:-len(x[0]))
+    layoutPlaneInfo = sorted(layoutPlaneInfo, key=lambda x: -len(x[0]))
     layoutPlanePoints, layoutPlaneMasks, layoutPlaneIndices = zip(*layoutPlaneInfo)
 
-
     layout_areas = [len(points) for points in layoutPlanePoints]
-    layoutPlaneIndices = np.array(layoutPlaneIndices)    
+    layoutPlaneIndices = np.array(layoutPlaneIndices)
     layout_plane_depths = plane_depths[layoutPlaneIndices]
     layout_planes = planes[layoutPlaneIndices]
-    
+
     relations = np.zeros((len(layoutPlanePoints), len(layoutPlanePoints)), dtype=np.int32)
     for index_1, points_1 in enumerate(layoutPlanePoints):
         plane_1 = layout_planes[index_1]
@@ -736,30 +1321,30 @@ def getLayout(planes, depth, plane_depths, plane_info, segmentation, camera, lay
         normal_1 = plane_1 / max(offset_1, 1e-4)
         uv_1 = np.round(points_1.mean(0)).astype(np.int32)
         depth_value_1 = layout_plane_depths[index_1, uv_1[1], uv_1[0]]
-        point_1 = np.array([(uv_1[0] - camera[2]) / camera[0], 1, -(uv_1[1] - camera[3]) / camera[1]]) * depth_value_1        
+        point_1 = np.array([(uv_1[0] - camera[2]) / camera[0], 1, -(uv_1[1] - camera[3]) / camera[1]]) * depth_value_1
         for index_2, points_2 in enumerate(layoutPlanePoints):
             if index_2 <= index_1:
                 continue
             plane_2 = layout_planes[index_2]
             offset_2 = np.linalg.norm(plane_2)
-            normal_2 = plane_2 / max(offset_2, 1e-4)            
+            normal_2 = plane_2 / max(offset_2, 1e-4)
             if np.abs(np.dot(normal_2, normal_1)) > parallelThreshold:
                 continue
             uv_2 = np.round(points_2.mean(0)).astype(np.int32)
             depth_value_2 = layout_plane_depths[index_2, uv_2[1], uv_2[0]]
-            point_2 = np.array([(uv_2[0] - camera[2]) / camera[0], 1, -(uv_2[1] - camera[3]) / camera[1]]) * depth_value_2
+            point_2 = np.array(
+                [(uv_2[0] - camera[2]) / camera[0], 1, -(uv_2[1] - camera[3]) / camera[1]]) * depth_value_2
 
             if np.dot(normal_1, point_2 - point_1) <= 0 and np.dot(normal_2, point_1 - point_2) < 0:
                 relations[index_1][index_2] = 1
-                relations[index_2][index_1] = 1                
+                relations[index_2][index_1] = 1
             else:
                 relations[index_1][index_2] = 2
-                relations[index_2][index_1] = 2                
+                relations[index_2][index_1] = 2
                 pass
             continue
         continue
-    
-    
+
     combinations = []
     indices = range(len(layoutPlaneIndices))
     for num_planes in range(2, len(layoutPlaneIndices) + 1):
@@ -767,7 +1352,7 @@ def getLayout(planes, depth, plane_depths, plane_info, segmentation, camera, lay
             combinations.append((plane_indices, sum([layout_areas[plane_index] for plane_index in plane_indices])))
             continue
         continue
-    combinations = sorted(combinations, key=lambda x:-x[1])
+    combinations = sorted(combinations, key=lambda x: -x[1])
     combinations = [combination for combination in combinations if combination[1] > layout_areas[0]]
 
     valid_mask = depth > 1e-4
@@ -776,24 +1361,28 @@ def getLayout(planes, depth, plane_depths, plane_info, segmentation, camera, lay
     layout_plane_depths[layout_plane_depths < 1e-4] = 10
     plane_mask_dict = {}
     for combination, area in combinations:
-        combination = np.array(combination)        
+        combination = np.array(combination)
         depths = layout_plane_depths[combination]
         combination_depth = np.zeros(segmentation.shape)
         for plane_index_1 in combination:
             plane_mask = np.ones(segmentation.shape, dtype=np.bool)
-            for plane_index_2 in combination:                
+            for plane_index_2 in combination:
                 if plane_index_2 == plane_index_1:
-                    continue                
+                    continue
                 if (plane_index_1, plane_index_2) not in plane_mask_dict:
                     if relations[plane_index_1][plane_index_2] == 0:
                         plane_mask_dict[(plane_index_1, plane_index_2)] = 1 - layoutPlaneMasks[plane_index_2]
                         plane_mask_dict[(plane_index_2, plane_index_1)] = 1 - layoutPlaneMasks[plane_index_1]
                     elif relations[plane_index_1][plane_index_2] == 1:
-                        plane_mask_dict[(plane_index_1, plane_index_2)] = layout_plane_depths[plane_index_1] < layout_plane_depths[plane_index_2]
-                        plane_mask_dict[(plane_index_2, plane_index_1)] = layout_plane_depths[plane_index_1] > layout_plane_depths[plane_index_2]
+                        plane_mask_dict[(plane_index_1, plane_index_2)] = layout_plane_depths[plane_index_1] < \
+                                                                          layout_plane_depths[plane_index_2]
+                        plane_mask_dict[(plane_index_2, plane_index_1)] = layout_plane_depths[plane_index_1] > \
+                                                                          layout_plane_depths[plane_index_2]
                     else:
-                        plane_mask_dict[(plane_index_1, plane_index_2)] = layout_plane_depths[plane_index_1] > layout_plane_depths[plane_index_2]
-                        plane_mask_dict[(plane_index_2, plane_index_1)] = layout_plane_depths[plane_index_1] < layout_plane_depths[plane_index_2]
+                        plane_mask_dict[(plane_index_1, plane_index_2)] = layout_plane_depths[plane_index_1] > \
+                                                                          layout_plane_depths[plane_index_2]
+                        plane_mask_dict[(plane_index_2, plane_index_1)] = layout_plane_depths[plane_index_1] < \
+                                                                          layout_plane_depths[plane_index_2]
                         pass
                     pass
                 plane_mask = np.logical_and(plane_mask, plane_mask_dict[(plane_index_1, plane_index_2)])
@@ -819,7 +1408,9 @@ def getLayout(planes, depth, plane_depths, plane_info, segmentation, camera, lay
                     if relations[plane_index_1][plane_index_2] == 0:
                         continue
                     plane_mask = plane_mask_dict[(plane_index_1, plane_index_2)].astype(np.uint8)
-                    boundaries[(layoutPlaneIndices[plane_index_1], layoutPlaneIndices[plane_index_2])] = (cv2.dilate(plane_mask, np.ones((3, 3))) - cv2.erode(plane_mask, np.ones((3, 3))), relations[plane_index_1][plane_index_2])
+                    boundaries[(layoutPlaneIndices[plane_index_1], layoutPlaneIndices[plane_index_2])] = (
+                        cv2.dilate(plane_mask, np.ones((3, 3))) - cv2.erode(plane_mask, np.ones((3, 3))),
+                        relations[plane_index_1][plane_index_2])
                     continue
                 continue
             return layout, boundaries
@@ -830,14 +1421,13 @@ def getLayout(planes, depth, plane_depths, plane_info, segmentation, camera, lay
         return layoutSegmentation, {}
     else:
         return layoutSegmentation
-    
+
     layoutVisibleDepth = np.zeros(segmentation.shape)
     for layout_index, points in enumerate(layoutPlanePoints):
         xs = points[:, 0]
         ys = points[:, 1]
         layoutVisibleDepth[ys, xs] = layoutPlaneDepths[ys, xs, layout_index]
         continue
-
 
     invalidMask = {}
     while True:
@@ -855,17 +1445,21 @@ def getLayout(planes, depth, plane_depths, plane_info, segmentation, camera, lay
                 if relations[index_1][index_2] == 0:
                     continue
                 elif relations[index_1][index_2] == 1:
-                    layoutMask = np.logical_and(layoutMask, np.logical_or(layoutPlaneDepths[:, :, index_1] <= layoutPlaneDepths[:, :, index_2], layoutPlaneDepths[:, :, index_2] < 1e-4))
+                    layoutMask = np.logical_and(layoutMask, np.logical_or(
+                        layoutPlaneDepths[:, :, index_1] <= layoutPlaneDepths[:, :, index_2],
+                        layoutPlaneDepths[:, :, index_2] < 1e-4))
                 else:
-                    layoutMask = np.logical_and(layoutMask, layoutPlaneDepths[:, :, index_1] >= layoutPlaneDepths[:, :, index_2])
+                    layoutMask = np.logical_and(layoutMask,
+                                                layoutPlaneDepths[:, :, index_1] >= layoutPlaneDepths[:, :, index_2])
                     pass
                 continue
-            
+
             if np.logical_and(layoutPlaneMasks[index_1], layoutMask).sum() < layoutPlaneMasks[index_1].sum() * 0.9:
-                print('invalid', index_1, np.logical_and(layoutPlaneMasks[index_1], layoutMask).sum(), layoutPlaneMasks[index_1].sum() * 0.9)
+                print('invalid', index_1, np.logical_and(layoutPlaneMasks[index_1], layoutMask).sum(),
+                      layoutPlaneMasks[index_1].sum() * 0.9)
                 hasChange = True
                 invalidMask[index_1] = True
-                break                
+                break
             validLayoutMask = np.logical_and(layoutMask, layoutVisibleDepth > 1e-4)
             layoutDepth = layoutPlaneDepths[:, :, index_1][validLayoutMask]
             visibleDepth = layoutVisibleDepth[validLayoutMask]
@@ -874,7 +1468,7 @@ def getLayout(planes, depth, plane_depths, plane_info, segmentation, camera, lay
                 hasChange = True
                 invalidMask[index_1] = True
                 break
-            layoutMasks[index_1] = layoutMask            
+            layoutMasks[index_1] = layoutMask
             continue
         if hasChange:
             continue
@@ -887,8 +1481,8 @@ def getLayout(planes, depth, plane_depths, plane_info, segmentation, camera, lay
         return layoutSegmentation
     else:
         return {}
-    
-    
+
+
 ## Get structures
 def getStructures(image, planes, plane_info, segmentation, depth, camera):
     parallelThreshold = np.cos(np.deg2rad(30))
@@ -929,16 +1523,16 @@ def getStructures(image, planes, plane_info, segmentation, depth, camera):
                 individualPlanes.append(structurePlaneIndices[0])
                 pass
             continue
-        
+
         planePairs = itertools.combinations(structurePlaneIndices, 2)
         planePairs = np.array(list(planePairs))
         for planeIndex_1, planeIndex_2 in planePairs:
             if relations[planeIndex_1][planeIndex_2] != 0:
-                continue            
+                continue
             plane_1 = planes[planeIndex_1]
             offset_1 = np.linalg.norm(plane_1)
             normal_1 = plane_1 / max(offset_1, 1e-4)
-            
+
             plane_2 = planes[planeIndex_2]
             offset_2 = np.linalg.norm(plane_2)
             normal_2 = plane_2 / max(offset_2, 1e-4)
@@ -948,19 +1542,20 @@ def getStructures(image, planes, plane_info, segmentation, depth, camera):
 
             uv_1 = planePoints[planeIndex_1]
             depth_1 = depth[uv_1[1], uv_1[0]]
-            point_1 = np.array([(uv_1[0] - camera[2]) / camera[0] * depth_1, depth_1, -(uv_1[1] - camera[3]) / camera[1] * depth_1])
-            
+            point_1 = np.array(
+                [(uv_1[0] - camera[2]) / camera[0] * depth_1, depth_1, -(uv_1[1] - camera[3]) / camera[1] * depth_1])
+
             uv_2 = planePoints[planeIndex_2]
             depth_2 = depth[uv_2[1], uv_2[0]]
-            point_2 = np.array([(uv_2[0] - camera[2]) / camera[0] * depth_2, depth_2, -(uv_2[1] - camera[3]) / camera[1] * depth_2])                
-            
-                
+            point_2 = np.array(
+                [(uv_2[0] - camera[2]) / camera[0] * depth_2, depth_2, -(uv_2[1] - camera[3]) / camera[1] * depth_2])
+
             if np.dot(normal_1, point_2 - point_1) <= 0 and np.dot(normal_2, point_1 - point_2) < 0:
                 relations[planeIndex_1][planeIndex_2] = 1
-                relations[planeIndex_2][planeIndex_1] = 1                
+                relations[planeIndex_2][planeIndex_1] = 1
             else:
                 relations[planeIndex_1][planeIndex_2] = 2
-                relations[planeIndex_2][planeIndex_1] = 2                
+                relations[planeIndex_2][planeIndex_1] = 2
                 pass
             continue
 
@@ -971,7 +1566,7 @@ def getStructures(image, planes, plane_info, segmentation, depth, camera):
 
         if numConvex == 0 and numConcave == 0:
             for planeIndex in structurePlaneIndices:
-                if planeIndex not in individualPlanes:                
+                if planeIndex not in individualPlanes:
                     individualPlanes.append(planeIndex)
                     pass
                 continue
@@ -1017,7 +1612,7 @@ def getStructures(image, planes, plane_info, segmentation, depth, camera):
                 continue
             pass
         continue
-    structures += [([planeIndex], 0) for planeIndex in individualPlanes]        
+    structures += [([planeIndex], 0) for planeIndex in individualPlanes]
 
     labelStructures = {}
     for structureIndex, (planeIndices, convex) in enumerate(structures):
@@ -1031,15 +1626,16 @@ def getStructures(image, planes, plane_info, segmentation, depth, camera):
             continue
 
         convex = convex == 0
-        
+
         masks = []
         for planeIndex in planeIndices:
             masks.append(segmentation == planeIndex)
             continue
         mask = np.any(np.array(masks), axis=0)
-        
+
         structurePlanes = np.array(structurePlanes)
-        structurePlaneDepths = calcPlaneDepths(structurePlanes, segmentation.shape[1], segmentation.shape[0], camera, max_depth=-1)
+        structurePlaneDepths = calcPlaneDepths(structurePlanes, segmentation.shape[1], segmentation.shape[0], camera,
+                                               max_depth=-1)
         if convex:
             structurePlaneDepths[structurePlaneDepths < 1e-4] = 10
             structurePlaneDepth = structurePlaneDepths.min(-1)
@@ -1057,24 +1653,26 @@ def getStructures(image, planes, plane_info, segmentation, depth, camera):
 
             if 0 not in labelStructures:
                 labelStructures[0] = []
-                pass            
+                pass
             for planeIndex, mask in zip(planeIndices, masks):
                 labelStructures[0].append((planes[planeIndex], mask))
                 continue
             continue
-                
+
         structurePlanes = sorted(structurePlanes, key=lambda x: x[0])
         if len(planeIndices) == 3:
             dotProducts = [np.abs(plane[2] / max(np.linalg.norm(plane), 1e-4)) for plane in structurePlanes]
             horizontalPlaneIndex = np.array(dotProducts).argmax()
-            structurePlanes = [structurePlanes[horizontalPlaneIndex]] + structurePlanes[:horizontalPlaneIndex] + structurePlanes[horizontalPlaneIndex + 1:]
+            structurePlanes = [structurePlanes[horizontalPlaneIndex]] + structurePlanes[
+                                                                        :horizontalPlaneIndex] + structurePlanes[
+                                                                                                 horizontalPlaneIndex + 1:]
             pass
 
         parameters = np.concatenate(structurePlanes, axis=0)
         if convex:
             label = (len(planeIndices) - 2) * 2 + 1
         else:
-            label = (len(planeIndices) - 2) * 2 + 2            
+            label = (len(planeIndices) - 2) * 2 + 2
             pass
         if label not in labelStructures:
             labelStructures[label] = []
@@ -1090,12 +1688,14 @@ def crossProductMatrix(vector):
                        [vector[2], 0, -vector[0]],
                        [-vector[1], vector[0], 0]])
     return matrix
-    
+
+
 def rotationMatrixToAxisAngle(R):
     angle = np.arccos(np.clip((np.trace(R) - 1) / 2, -1, 1))
     axis = np.array([R[2, 1] - R[1, 2], R[0, 2] - R[2, 0], R[1, 0] - R[0, 1]])
     axis /= max(np.linalg.norm(axis), 1e-8)
     return axis, angle
+
 
 def axisAngleToRotationMatrix(axis, angle):
     diag = np.diag(np.ones(3))
@@ -1103,59 +1703,58 @@ def axisAngleToRotationMatrix(axis, angle):
     R = diag + np.sin(angle) * K + (1 - np.cos(angle)) * np.matmul(K, K)
     return R
 
+
 ## Checks if a matrix is a valid rotation matrix.
 def isRotationMatrix(R):
     Rt = np.transpose(R)
     shouldBeIdentity = np.dot(Rt, R)
-    I = np.identity(3, dtype = R.dtype)
+    I = np.identity(3, dtype=R.dtype)
     n = np.linalg.norm(I - shouldBeIdentity)
     return n < 1e-6
+
 
 ## Calculates rotation matrix to euler angles
 ## The result is the same as MATLAB except the order
 ## of the euler angles ( x and z are swapped ).
 def rotationMatrixToEulerAngles(R):
- 
-    assert(isRotationMatrix(R))
-     
-    sy = math.sqrt(R[0,0] * R[0,0] +  R[1,0] * R[1,0])
-     
+    assert (isRotationMatrix(R))
+
+    sy = math.sqrt(R[0, 0] * R[0, 0] + R[1, 0] * R[1, 0])
+
     singular = sy < 1e-6
- 
-    if  not singular :
-        x = math.atan2(R[2,1] , R[2,2])
-        y = math.atan2(-R[2,0], sy)
-        z = math.atan2(R[1,0], R[0,0])
-    else :
-        x = math.atan2(-R[1,2], R[1,1])
-        y = math.atan2(-R[2,0], sy)
+
+    if not singular:
+        x = math.atan2(R[2, 1], R[2, 2])
+        y = math.atan2(-R[2, 0], sy)
+        z = math.atan2(R[1, 0], R[0, 0])
+    else:
+        x = math.atan2(-R[1, 2], R[1, 1])
+        y = math.atan2(-R[2, 0], sy)
         z = 0
- 
+
     return np.array([x, y, z])
+
 
 ## Calculates Rotation Matrix given euler angles.
 def eulerAnglesToRotationMatrix(theta):
-     
-    R_x = np.array([[1,         0,                  0                   ],
-                    [0,         math.cos(theta[0]), -math.sin(theta[0]) ],
-                    [0,         math.sin(theta[0]), math.cos(theta[0])  ]
+    R_x = np.array([[1, 0, 0],
+                    [0, math.cos(theta[0]), -math.sin(theta[0])],
+                    [0, math.sin(theta[0]), math.cos(theta[0])]
                     ])
-         
-         
-                     
-    R_y = np.array([[math.cos(theta[1]),    0,      math.sin(theta[1])  ],
-                    [0,                     1,      0                   ],
-                    [-math.sin(theta[1]),   0,      math.cos(theta[1])  ]
+
+    R_y = np.array([[math.cos(theta[1]), 0, math.sin(theta[1])],
+                    [0, 1, 0],
+                    [-math.sin(theta[1]), 0, math.cos(theta[1])]
                     ])
-                 
-    R_z = np.array([[math.cos(theta[2]),    -math.sin(theta[2]),    0],
-                    [math.sin(theta[2]),    math.cos(theta[2]),     0],
-                    [0,                     0,                      1]
+
+    R_z = np.array([[math.cos(theta[2]), -math.sin(theta[2]), 0],
+                    [math.sin(theta[2]), math.cos(theta[2]), 0],
+                    [0, 0, 1]
                     ])
-                     
-                     
-    R = np.dot(R_z, np.dot( R_y, R_x ))
+
+    R = np.dot(R_z, np.dot(R_y, R_x))
     return R
+
 
 ## Compute the transformation given point matches
 def calcTransformation(points_1, points_2):
@@ -1163,13 +1762,14 @@ def calcTransformation(points_1, points_2):
     center_2 = points_2.mean(0)
     H = np.matmul((points_1 - center_1).transpose(), (points_2 - center_2))
     U, S, V = np.linalg.svd(H)
-    
+
     R = np.matmul(V.transpose(), U.transpose())
     if np.linalg.det(R) < 0 and False:
         R[:, 2] *= -1
         pass
     t = -np.matmul(R, center_1) + center_2
     return R, t
+
 
 ## Compute transformation given two lists of planes based on RANSAC
 def calcTransformationRANSAC(planes_1, planes_2):
@@ -1185,7 +1785,7 @@ def calcTransformationRANSAC(planes_1, planes_2):
     distanceThreshold = 0.2
     for iteration in range(numIterations):
         indices_1 = np.random.choice(all_indices_1, 2, replace=False)
-        points_1 = all_points_1[indices_1]        
+        points_1 = all_points_1[indices_1]
         indices_2 = np.random.choice(all_indices_2, 2, replace=False)
         points_2 = all_points_2[indices_2]
 
@@ -1193,7 +1793,7 @@ def calcTransformationRANSAC(planes_1, planes_2):
 
         transformed_points = np.matmul(R, all_points_1.transpose()).transpose() + t
         distances = np.linalg.norm(np.expand_dims(transformed_points, 1) - all_points_2, axis=-1).min(-1)
-        
+
         inlierMask = distances < distanceThreshold
         numInliers = inlierMask.sum()
 
@@ -1209,6 +1809,7 @@ def calcTransformationRANSAC(planes_1, planes_2):
     R, t = calcTransformation(all_points_1[inlierMask], all_points_2[indices][inlierMask])
     return R, t
 
+
 ## Write image paths to HTML
 def writeHTML(folder, info_list, numImages, labels=[], convertToImage=False, image_width=-1, filename=''):
     from simple_html import HTML
@@ -1216,14 +1817,14 @@ def writeHTML(folder, info_list, numImages, labels=[], convertToImage=False, ima
     h = HTML('html')
     h.p('Results')
     h.br()
-    t = h.table(border='1')    
+    t = h.table(border='1')
     if len(labels) == len(info_list):
         r_inp = t.tr()
         for label in labels:
             r_inp.td(label)
             continue
         pass
-    
+
     for index in range(numImages):
         r_inp = t.tr()
         r_inp.td(str(index))
@@ -1248,6 +1849,7 @@ def writeHTML(folder, info_list, numImages, labels=[], convertToImage=False, ima
         pass
     return
 
+
 def writeHTMLComparison(filename, folders, common_info_list, comparison_info_list, numImages, convertToImage=False):
     from simple_html import HTML
 
@@ -1264,7 +1866,7 @@ def writeHTMLComparison(filename, folders, common_info_list, comparison_info_lis
             for info in comparison_info_list:
                 r_inp.td().img(src=folder + '/' + str(index) + '_' + info + '.png')
                 continue
-            continue        
+            continue
         h.br()
         continue
 
@@ -1277,6 +1879,7 @@ def writeHTMLComparison(filename, folders, common_info_list, comparison_info_lis
         pass
     return
 
+
 def one_hot(values, depth):
     maxInds = values.reshape(-1)
     results = np.zeros([maxInds.shape[0], depth])
@@ -1284,21 +1887,25 @@ def one_hot(values, depth):
     results = results.reshape(list(values.shape) + [depth])
     return results
 
+
 def normalize(values):
     return values / np.maximum(np.linalg.norm(values, axis=-1, keepdims=True), 1e-4)
+
 
 if __name__ == '__main__':
     from config import Config
     from models.modules import optimizeDetectionModule
+
     config = Config()
     config.GLOBAL_MASK = False
     config.loadAnchorPlanes('joint')
-    
+
     detection_pair, input_pair = torch.load('test/debug.pth')
     optimized_pair = optimizeDetectionModule(config, detection_pair, input_pair)
-    print([torch.norm(input_dict['parameters'] - detection_dict['detection'][:, 6:9]) for input_dict, detection_dict in zip(input_pair, optimized_pair)])
+    print([torch.norm(input_dict['parameters'] - detection_dict['detection'][:, 6:9]) for input_dict, detection_dict in
+           zip(input_pair, optimized_pair)])
     exit(1)
-    
+
     image = cv2.imread('test/image.png')
     pred_dict = predictPlaneNet(image)
     cv2.imwrite('test/planenet_segmentation.png', drawSegmentationImage(pred_dict['segmentation'], blackIndex=10))
@@ -1308,7 +1915,7 @@ if __name__ == '__main__':
     planes_2 = np.load('test/planes_2.npy')
     pose = np.load('test/pose.npy')
     all_points_1 = planes_1 / np.maximum(pow(np.linalg.norm(planes_1, axis=-1, keepdims=True), 2), 1e-4)
-    all_points_2 = planes_2 / np.maximum(pow(np.linalg.norm(planes_2, axis=-1, keepdims=True), 2), 1e-4)    
+    all_points_2 = planes_2 / np.maximum(pow(np.linalg.norm(planes_2, axis=-1, keepdims=True), 2), 1e-4)
     R_pred, t = calcTransformationRANSAC(planes_1, planes_2)
     R_gt = axisAngleToRotationMatrix(pose[3:6], pose[6])
     for name, R in [('gt', R_gt), ('pred', R_pred)]:
