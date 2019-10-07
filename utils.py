@@ -498,10 +498,17 @@ def resize_image(image, min_dim=None, max_dim=None, min_scale=None, mode="square
     scale = 1
     padding = [(0, 0), (0, 0), (0, 0)]
     crop = None
+<<<<<<< HEAD
 
     if mode == "none":
         return image, window, scale, padding, crop
 
+=======
+
+    if mode == "none":
+        return image, window, scale, padding, crop
+
+>>>>>>> c2946805b74b942682977c484d3475801b8a522b
     # Scale?
     if min_dim:
         # Scale up but not down
@@ -627,6 +634,7 @@ def resize_plane(plane, scale, padding, crop=None):
         plane = plane[y:y + h, x:x + w]
     else:
         plane = np.pad(plane, padding[:2], mode='constant', constant_values=0)
+<<<<<<< HEAD
 
     return plane
 
@@ -650,6 +658,13 @@ def minimize_mask(bbox, mask, mini_shape):
     return mini_mask
 
 def minimize_mask_square(bbox, mask, mini_shape):
+=======
+
+    return plane
+
+
+def minimize_mask(bbox, mask, mini_shape):
+>>>>>>> c2946805b74b942682977c484d3475801b8a522b
     """Resize masks to a smaller version to reduce memory load.
 	Mini-masks can be resized back to image scale using expand_masks()
 	See inspect_data.ipynb notebook for more details.
@@ -663,18 +678,23 @@ def minimize_mask_square(bbox, mask, mini_shape):
         if m.size == 0:
             raise Exception("Invalid bounding box with area of zero")
         # Resize with bilinear interpolation
+<<<<<<< HEAD
         padding = (m.shape[0] - m.shape[1]) // 2
         if padding > 0:
             m = np.pad(m, ((0, 0), (padding, padding)), mode='constant', constant_values=0)
         else:
             m = np.pad(m, ((-padding, -padding), (0, 0)), mode='constant', constant_values=0)
+=======
+>>>>>>> c2946805b74b942682977c484d3475801b8a522b
         m = skimage.transform.resize(m, mini_shape, order=1, mode="constant")
         mini_mask[:, :, i] = np.around(m).astype(np.bool)
     return mini_mask
 
+
 def minimize_depth(bbox, depth, mini_shape):
     """Resize masks to a smaller version to cut memory load.
 	Mini-masks can then resized back to image scale using expand_masks()
+<<<<<<< HEAD
 
 	See inspect_data.ipynb notebook for more details.
 	"""
@@ -716,6 +736,25 @@ def minimize_depth_square(bbox, depth, mini_shape):
     return mini_depth
 
 
+=======
+
+	See inspect_data.ipynb notebook for more details.
+	"""
+    mini_depth = np.zeros(mini_shape + (len(bbox),), dtype=np.float32)
+    for i in range(depth.shape[-1]):
+        d = depth[:, :, i]
+        y1, x1, y2, x2 = bbox[i][:4]
+        d = d[y1:y2, x1:x2]
+        if d.size == 0:
+            raise Exception("Invalid bounding box with area of zero")
+        d = skimage.transform.resize(d, mini_shape, order=1)
+        # d = cv2.resize(d, mini_shape, interpolation=cv2.INTER_NEAREST)
+        # m = cv2.resize(depth[y1:y2, x1:x2], mini_shape, interpolation=cv2.INTER_NEAREST)
+        mini_depth[:, :, i] = d
+    return mini_depth
+
+
+>>>>>>> c2946805b74b942682977c484d3475801b8a522b
 def minimize_normal(bbox, normal, mini_shape):
     """
     Resize masks to a smaller version to cut memory load.

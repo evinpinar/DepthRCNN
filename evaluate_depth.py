@@ -11,9 +11,12 @@ import pickle
 # Error computation based on https://github.com/tinghuiz/SfMLearner/blob/master/kitti_eval/eval_depth.py
 # Also check https://github.com/ialhashim/DenseDepth/blob/master/utils.py
 def compute_errors(gt, pred):
+<<<<<<< HEAD
 
     ## It does not mask out the irrelevant values from ground truth depth! (<10e4)
 
+=======
+>>>>>>> c2946805b74b942682977c484d3475801b8a522b
     thresh = np.maximum((gt / pred), (pred / gt))
     a1 = (thresh < 1.25   ).mean()
     a2 = (thresh < 1.25 ** 2).mean()

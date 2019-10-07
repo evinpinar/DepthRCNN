@@ -3,12 +3,18 @@ import numpy as np
 import torch
 import scipy.io
 import h5py
+<<<<<<< HEAD
 import cv2
+=======
+>>>>>>> c2946805b74b942682977c484d3475801b8a522b
 
 from config_original import Config
 import utils_original as utils
 from torch.utils.data import Dataset
+<<<<<<< HEAD
 from scipy.ndimage.filters import gaussian_filter
+=======
+>>>>>>> c2946805b74b942682977c484d3475801b8a522b
 
 ############################################################
 #  Configurations
@@ -211,11 +217,14 @@ class NYUDepthDataset(Dataset):
 		image = np.load(self.images[i]+'.npy')
 		depth = np.load(self.depths[i]+'.npy')/4
 
+<<<<<<< HEAD
 		kernel = np.ones((5, 5), np.uint8)
 		edges = cv2.Canny(image, 80, 200)
 		thick_edges = cv2.dilate(edges, kernel, iterations=1)
 		thick_edges[np.where(thick_edges == 255)] = 1
 
+=======
+>>>>>>> c2946805b74b942682977c484d3475801b8a522b
 
 		#if self.transform:
 		#	image, depth = self.transform_test(image, depth)
@@ -234,11 +243,14 @@ class NYUDepthDataset(Dataset):
 			max_dim=self.config.IMAGE_MAX_DIM,
 			padding=self.config.IMAGE_PADDING)
 
+<<<<<<< HEAD
 		thick_edges, window, scale, padding = utils.resize_depth(
 			thick_edges,
 			min_dim=self.config.IMAGE_MAX_DIM,
 			max_dim=self.config.IMAGE_MAX_DIM,
 			padding=self.config.IMAGE_PADDING)
+=======
+>>>>>>> c2946805b74b942682977c484d3475801b8a522b
 
 		#if self.augment:
 
@@ -276,6 +288,7 @@ class NYUDepthDataset(Dataset):
 			assert depth.shape == depth_shape, "Augmentation shouldn't change depth size"
 
 
+<<<<<<< HEAD
 		#depth = np.concatenate([np.zeros((80, 640)), depth, np.zeros((80, 640))], axis=0)
 
 
@@ -287,13 +300,25 @@ class NYUDepthDataset(Dataset):
 		image = image.transpose((2, 0, 1)).astype(np.float32)
 		depth = depth.astype(np.float32)
 		thick_edges = thick_edges.astype(np.float32)
+=======
+		image = utils.mold_image(image.astype(np.float32), self.config)
+
+		#depth = np.concatenate([np.zeros((80, 640)), depth, np.zeros((80, 640))], axis=0)
+
+		image = image.transpose((2, 0, 1)).astype(np.float32)
+		depth = depth.astype(np.float32)
+>>>>>>> c2946805b74b942682977c484d3475801b8a522b
 
 
 		#w = 448
 		#image = image[:, :w, :]
 		#depth = depth[:w, :]
 
+<<<<<<< HEAD
 		info = [image, thick_edges, depth]
+=======
+		info = [image, [], depth]
+>>>>>>> c2946805b74b942682977c484d3475801b8a522b
 
 		return info
 

@@ -311,6 +311,7 @@ def shift_depth(gt_masks, gt_depths):
     return gt_depths
 
 
+<<<<<<< HEAD
 def rescale_depth_target(target_depth, gt_boxes, mini_shape):
     '''
     Takes the target masked depths of each roi. Calculates delta, the
@@ -332,6 +333,8 @@ def rescale_depth_target(target_depth, gt_boxes, mini_shape):
         target_depth[i] = target_depth[i] * (delta / mini_shape[0])
     return target_depth
 
+=======
+>>>>>>> c2946805b74b942682977c484d3475801b8a522b
 def detection_target_depth(proposals, gt_class_ids, gt_boxes, gt_masks, gt_depths, gt_normals, config):
     """ Subsamples proposals and generates target box refinment, class_ids,
         and masks for each.
@@ -499,6 +502,7 @@ def detection_target_depth(proposals, gt_class_ids, gt_boxes, gt_masks, gt_depth
             zeros = zeros.cuda()
         deltas = torch.cat([deltas, zeros], dim=0)
         zeros = Variable(torch.zeros(negative_count, config.MASK_SHAPE[0], config.MASK_SHAPE[1]),
+<<<<<<< HEAD
                              requires_grad=False)
         zeros_normal = Variable(torch.zeros(negative_count, 3, config.MASK_SHAPE[0], config.MASK_SHAPE[1]),
                                 requires_grad=False)
@@ -988,6 +992,74 @@ def data_generator2(dataset, config, shuffle=True, augment=False, augmentation=N
 
 ## Adds padding to keep aspect ratio.
 def data_generator3(dataset, config, shuffle=True, augment=False, augmentation=None,
+=======
+                             requires_grad=False)
+        zeros_normal = Variable(torch.zeros(negative_count, 3, config.MASK_SHAPE[0], config.MASK_SHAPE[1]),
+                                requires_grad=False)
+        if config.GPU_COUNT:
+            zeros = zeros.cuda()
+            zeros_normal = zeros_normal.cuda()
+
+        # print("masks, normals, zeros before: ", masks.shape, normals.shape, zeros.shape)
+        masks = torch.cat([masks, zeros], dim=0)
+        depths = torch.cat([depths, zeros], dim=0)
+        # print("then masks: ", masks.shape)
+        if config.PREDICT_NORMAL:
+            normals = torch.cat([normals, zeros_normal], dim=0)
+
+        zeros = Variable(torch.zeros(negative_count, config.NUM_PARAMETERS), requires_grad=False)
+        if config.GPU_COUNT:
+            zeros = zeros.cuda()
+    elif positive_count > 0:
+        rois = positive_rois
+    elif negative_count > 0:
+        rois = negative_rois
+        zeros = Variable(torch.zeros(negative_count), requires_grad=False)
+        if config.GPU_COUNT:
+            zeros = zeros.cuda()
+        roi_gt_class_ids = zeros
+        zeros = Variable(torch.zeros(negative_count, 4), requires_grad=False).int()
+        if config.GPU_COUNT:
+            zeros = zeros.cuda()
+        deltas = zeros
+        zeros = Variable(torch.zeros(negative_count, config.MASK_SHAPE[0], config.MASK_SHAPE[1]), requires_grad=False)
+        zeros_normal = Variable(torch.zeros(negative_count, 3, config.MASK_SHAPE[0], config.MASK_SHAPE[1]),
+                                requires_grad=False)
+        if config.GPU_COUNT:
+            zeros = zeros.cuda()
+            zeros_normal = zeros_normal.cuda()
+        masks = zeros
+        depths = zeros
+        normals = zeros_normal
+
+        zeros = Variable(torch.zeros(negative_count, config.NUM_PARAMETERS), requires_grad=False)
+        if config.GPU_COUNT:
+            zeros = zeros.cuda()
+    else:
+        rois = Variable(torch.FloatTensor(), requires_grad=False)
+        roi_gt_class_ids = Variable(torch.IntTensor(), requires_grad=False)
+        deltas = Variable(torch.FloatTensor(), requires_grad=False)
+        masks = Variable(torch.FloatTensor(), requires_grad=False)
+        depths = Variable(torch.FloatTensor(), requires_grad=False)
+        normals = Variable(torch.FloatTensor(), requires_grad=False)
+        if config.GPU_COUNT:
+            rois = rois.cuda()
+            roi_gt_class_ids = roi_gt_class_ids.cuda()
+            deltas = deltas.cuda()
+            masks = masks.cuda()
+            depths = depths.cuda()
+            normals = normals.cuda()
+            pass
+
+    if not config.PREDICT_NORMAL:
+        normals = Variable(torch.FloatTensor(), requires_grad=False)
+        normals = normals.cuda()
+
+    return rois, roi_gt_class_ids, deltas, masks, depths, normals
+
+
+def data_generator2(dataset, config, shuffle=True, augment=False, augmentation=None,
+>>>>>>> c2946805b74b942682977c484d3475801b8a522b
                    random_rois=0, batch_size=1, detection_targets=False,
                    no_augmentation_sources=None):
     """A generator that returns images and corresponding target class ids,
@@ -1081,8 +1153,13 @@ def data_generator3(dataset, config, shuffle=True, augment=False, augmentation=N
 
             # Resize masks to smaller size to reduce memory usage
             if config.USE_MINI_MASK:
+<<<<<<< HEAD
                 gt_masks = utils.minimize_mask_square(gt_boxes, gt_masks, config.MINI_MASK_SHAPE)
                 gt_depths = utils.minimize_depth_square(gt_boxes, gt_depths, config.MINI_MASK_SHAPE)
+=======
+                gt_masks = utils.minimize_mask(gt_boxes, gt_masks, config.MINI_MASK_SHAPE)
+                gt_depths = utils.minimize_depth(gt_boxes, gt_depths, config.MINI_MASK_SHAPE)
+>>>>>>> c2946805b74b942682977c484d3475801b8a522b
 
                 if config.PREDICT_NORMAL:
                     gt_normals = utils.minimize_normal(gt_boxes, gt_normals, config.MINI_MASK_SHAPE)
@@ -1177,7 +1254,10 @@ def data_generator3(dataset, config, shuffle=True, augment=False, augmentation=N
             if error_count > 5:
                 raise
 
+<<<<<<< HEAD
 
+=======
+>>>>>>> c2946805b74b942682977c484d3475801b8a522b
 ############################################################
 #  Depth Head for MaskRCNN
 ############################################################
@@ -1563,7 +1643,11 @@ class MaskDepthRCNN(nn.Module):
         ## Bottom-up Layers
         ## Returns a list of the last layers of each stage, 5 in total.
         ## Don't create the thead (stage 5), so we pick the 4th item in the list.
+<<<<<<< HEAD
         resnet = ResNet("resnet101", stage5=True, numInputChannels=config.NUM_INPUT_CHANNELS)
+=======
+        resnet = ResNet("resnet50", stage5=True, numInputChannels=config.NUM_INPUT_CHANNELS)
+>>>>>>> c2946805b74b942682977c484d3475801b8a522b
         C1, C2, C3, C4, C5 = resnet.stages()
 
         ## Top-down Layers
@@ -1925,6 +2009,7 @@ class MaskDepthRCNN(nn.Module):
 
             if self.config.PREDICT_DEPTH:
                 target_depth = shift_depth_target(target_mask, target_depth)
+<<<<<<< HEAD
                 #target_depth = rescale_depth_target(target_depth, gt_boxes, config.MINI_MASK_SHAPE)
 
             if len(rois) == 0:
@@ -2099,6 +2184,8 @@ class MaskDepthRCNN(nn.Module):
             if self.config.PREDICT_DEPTH:
                 #target_depth = shift_depth_target(target_mask, target_depth)
                 target_depth = rescale_depth_target(target_depth, gt_boxes[0], self.config.MINI_MASK_SHAPE)
+=======
+>>>>>>> c2946805b74b942682977c484d3475801b8a522b
 
             if len(rois) == 0:
                 mrcnn_class_logits = Variable(torch.FloatTensor())
@@ -2631,9 +2718,15 @@ class MaskDepthRCNN(nn.Module):
             if config.PREDICT_DEPTH:
                 depths = mrcnn_depth[np.arange(N), :, :, class_ids]
             if config.PREDICT_NORMAL:
+<<<<<<< HEAD
                 #print("unmolding mrcnn normals: ", mrcnn_normal.shape)
                 normals = mrcnn_normal[np.arange(N), class_ids, :, :, :]
                 #print("unmolded normals ",normals.shape)
+=======
+                print("unmolding mrcnn normals: ", mrcnn_normal.shape)
+                normals = mrcnn_normal[np.arange(N), class_ids, :, :, :]
+                print("unmolded normals ",normals.shape)
+>>>>>>> c2946805b74b942682977c484d3475801b8a522b
             pass
 
         ## Compute scale and shift to translate coordinates to image domain.
@@ -2695,10 +2788,14 @@ class MaskDepthRCNN(nn.Module):
             full_depths = np.stack(full_depths, axis=-1) \
                 if full_depths else np.empty((0,) + depths.shape[1:3])
 
+<<<<<<< HEAD
         full_normals = []
         if config.PREDICT_NORMAL:
             full_normals = normals
 
+=======
+        full_normals = normals
+>>>>>>> c2946805b74b942682977c484d3475801b8a522b
 
         return boxes, class_ids, scores, full_masks, full_depths, full_normals
 
