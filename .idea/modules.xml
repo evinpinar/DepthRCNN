@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="ProjectModuleManager">
+    <modules>
+      <module fileurl="file://$PROJECT_DIR$/../NYU_depth_v2_extractor/.idea/NYU_depth_v2_extractor.iml" filepath="$PROJECT_DIR$/../NYU_depth_v2_extractor/.idea/NYU_depth_v2_extractor.iml" />
+      <module fileurl="file://$PROJECT_DIR$/.idea/planercnn.iml" filepath="$PROJECT_DIR$/.idea/planercnn.iml" />
+    </modules>
+  </component>
+</project>
