@@ -533,7 +533,7 @@ def plot_loss(loss, val_loss, save=True, log_dir=None):
         plt.show(block=False)
         plt.pause(0.1)
 
-    plt.figure("depth_loss")
+    plt.figure("mrcnn_depth_loss")
     plt.gcf().clear()
     plt.plot(loss[:, 6], label='train')
     plt.plot(val_loss[:, 6], label='valid')
@@ -556,6 +556,20 @@ def plot_loss(loss, val_loss, save=True, log_dir=None):
     plt.legend()
     if save:
         save_path = os.path.join(log_dir, "normal_loss.png")
+        plt.savefig(save_path)
+    else:
+        plt.show(block=False)
+        plt.pause(0.1)
+
+    plt.figure("global_depth_loss")
+    plt.gcf().clear()
+    plt.plot(loss[:, 8], label='train')
+    plt.plot(val_loss[:, 8], label='valid')
+    plt.xlabel('epoch')
+    plt.ylabel('loss')
+    plt.legend()
+    if save:
+        save_path = os.path.join(log_dir, "global_depth_loss.png")
         plt.savefig(save_path)
     else:
         plt.show(block=False)

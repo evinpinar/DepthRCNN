@@ -353,6 +353,31 @@ def apply_box_deltas(boxes, deltas):
     result = torch.stack([y1, x1, y2, x2], dim=1)
     return result
 
+def modified_apply_box_deltas(boxes, deltas):
+    """Applies the given deltas to the given boxes.
+    :param boxes: [..., 4] where last dimension is y1, x1, y2, x2
+    :param deltas: [..., 4] where last dimension is [dy, dx, log(dh), log(dw)]
+    :return: boxes as a [..., 4] tensor
+    """
+    # Convert to y, x, h, w
+    height = boxes[..., 2] - boxes[..., 0]
+    width = boxes[..., 3] - boxes[..., 1]
+    center_y = boxes[..., 0] + 0.5 * height
+    center_x = boxes[..., 1] + 0.5 * width
+    print("Applying box deltas: ", "h, w: ", height.shape, width.shape, "boxes", boxes.shape, "deltas:", deltas.shape)
+    # Apply deltas
+    center_y += deltas[..., 0] * height
+    center_x += deltas[..., 1] * width
+    height *= torch.exp(deltas[..., 2])
+    width *= torch.exp(deltas[..., 3])
+    # Convert back to y1, x1, y2, x2
+    y1 = center_y - 0.5 * height
+    x1 = center_x - 0.5 * width
+    y2 = y1 + height
+    x2 = x1 + width
+    result = torch.stack([y1, x1, y2, x2], dim=-1)
+    return result
+
 
 def clip_boxes(boxes, window):
     """
@@ -364,6 +389,20 @@ def clip_boxes(boxes, window):
          boxes[:, 1].clamp(float(window[1]), float(window[3])),
          boxes[:, 2].clamp(float(window[0]), float(window[2])),
          boxes[:, 3].clamp(float(window[1]), float(window[3]))], 1)
+    return boxes
+
+def modif_clip_boxes(boxes, window):
+    """
+    Clip boxes to lie within window
+    :param boxes: [N, 4] each col is y1, x1, y2, x2
+    :param window: [4] in the form y1, x1, y2, x2
+    :return: clipped boxes as a [N, 4] tensor
+    """
+    boxes = torch.stack( \
+        [boxes[..., 0].clamp(float(window[0]), float(window[2])),
+         boxes[..., 1].clamp(float(window[1]), float(window[3])),
+         boxes[..., 2].clamp(float(window[0]), float(window[2])),
+         boxes[..., 3].clamp(float(window[1]), float(window[3]))], dim=-1)
     return boxes
 
 
@@ -382,8 +421,14 @@ def proposal_layer(inputs, proposal_count, nms_threshold, anchors, config=None):
 	"""
 
     ## Currently only supports batchsize 1
+
+    #print("===> Proposal layer! ")
+    #print("inputs before squeeze: ", inputs[0].shape, inputs[1].shape)
+
     inputs[0] = inputs[0].squeeze(0)
     inputs[1] = inputs[1].squeeze(0)
+
+    #print("inputs after squeeze: ", inputs[0].shape, inputs[1].shape)
 
     ## Box Scores. Use the foreground class confidence. [Batch, num_rois, 1]
     scores = inputs[0][:, 1]
@@ -406,6 +451,84 @@ def proposal_layer(inputs, proposal_count, nms_threshold, anchors, config=None):
 
     ## Apply deltas to anchors to get refined anchors.
     ## [batch, N, (y1, x1, y2, x2)]
+    #print("anchors: ", anchors.shape, " deltas: ", deltas.shape)
+    boxes = apply_box_deltas(anchors, deltas)
+
+    ## Clip to image boundaries. [batch, N, (y1, x1, y2, x2)]
+    height, width = config.IMAGE_SHAPE[:2]
+    window = np.array([0, 0, height, width]).astype(np.float32)
+    boxes = clip_boxes(boxes, window)
+
+    ## Filter out small boxes
+    ## According to Xinlei Chen's paper, this reduces detection accuracy
+    ## for small objects, so we're skipping it.
+
+    ## Non-max suppression
+    keep = nms(torch.cat((boxes, scores.unsqueeze(1)), 1).data, nms_threshold)
+
+    keep = keep[:proposal_count]
+    boxes = boxes[keep, :]
+
+    ## Normalize dimensions to range of 0 to 1.
+    norm = Variable(torch.from_numpy(np.array([height, width, height, width])).float(), requires_grad=False)
+    if config.GPU_COUNT:
+        norm = norm.cuda()
+    normalized_boxes = boxes / norm
+
+    ## Add back batch dimension
+    normalized_boxes = normalized_boxes.unsqueeze(0)
+
+    return normalized_boxes
+
+def modified_proposal_layer(inputs, proposal_count, nms_threshold, anchors, config=None):
+    """Receives anchor scores and selects a subset to pass as proposals
+	to the second stage. Filtering is done based on anchor scores and
+	non-max suppression to remove overlaps. It also applies bounding
+	box refinement detals to anchors.
+
+	Inputs:
+		rpn_probs: [batch, anchors, (bg prob, fg prob)]
+		rpn_bbox: [batch, anchors, (dy, dx, log(dh), log(dw))]
+
+	Returns:
+		Proposals in normalized coordinates [batch, rois, (y1, x1, y2, x2)]
+	"""
+
+    ## Currently only supports batchsize 1
+
+    print("===> Proposal layer! ")
+    print("inputs before squeeze: ", inputs[0].shape, inputs[1].shape)
+
+    inputs[0] = inputs[0].squeeze(0)
+    inputs[1] = inputs[1].squeeze(0)
+
+    #print("inputs after squeeze: ", inputs[0].shape, inputs[1].shape)
+
+    ## Box Scores. Use the foreground class confidence. [Batch, num_rois, 1]
+    scores = inputs[0][:, 1]
+
+    ## Box deltas [batch, num_rois, 4]
+    deltas = inputs[1]
+
+    std_dev = Variable(torch.from_numpy(np.reshape(config.RPN_BBOX_STD_DEV, [1, 4])).float(), requires_grad=False)
+    if config.GPU_COUNT:
+        std_dev = std_dev.cuda()
+
+    print("scores: ", scores.shape, " deltas: ", deltas.shape, " std dev: ", std_dev.shape)
+    deltas = deltas * std_dev
+    ## Improve performance by trimming to top anchors by score
+    ## and doing the rest on the smaller subset.
+    print(" anchors size: ", anchors.size())
+    pre_nms_limit = min(6000, anchors.size()[0])
+    scores, order = scores.sort(descending=True)
+    order = order[:, :pre_nms_limit]
+    scores = scores[:, :pre_nms_limit]
+    deltas = deltas[order.data, :]
+    anchors = anchors[order.data, :]
+
+    ## Apply deltas to anchors to get refined anchors.
+    ## [batch, N, (y1, x1, y2, x2)]
+    print("anchors: ", anchors.shape, " deltas: ", deltas.shape)
     boxes = apply_box_deltas(anchors, deltas)
 
     ## Clip to image boundaries. [batch, N, (y1, x1, y2, x2)]
@@ -1147,7 +1270,7 @@ class Mask(nn.Module):
 class Depth(nn.Module):
 
     # Changed version, no skip
-    def __init__(self, num_output_channels=1):
+    def modified_init__(self, num_output_channels=1):
         super(Depth, self).__init__()
         self.num_output_channels = num_output_channels
         self.conv1 = nn.Sequential(
@@ -1213,7 +1336,7 @@ class Depth(nn.Module):
         return
 
     # original init with skip connections for pyramid
-    def original__init__(self, num_output_channels=1):
+    def __init__(self, num_output_channels=1):
         super(Depth, self).__init__()
         self.num_output_channels = num_output_channels
         self.conv1 = nn.Sequential(
@@ -1279,7 +1402,7 @@ class Depth(nn.Module):
         return
 
     # Remove the skip connections from pyramid features
-    def forward(self, feature_maps):
+    def modified_forward(self, feature_maps):
         if self.crop:
             padding = 5
             for c in range(2, 5):
@@ -1326,7 +1449,7 @@ class Depth(nn.Module):
 
         return x
 
-    def original_forward(self, feature_maps):
+    def forward(self, feature_maps):
         if self.crop:
             padding = 5
             for c in range(2, 5):
@@ -1468,9 +1591,9 @@ class Plane(nn.Module):
         # print("deconv3: ", x.shape)
         x = self.deconv4(torch.cat([self.conv4(feature_maps[3]), x], dim=1))
         x = self.deconv5(torch.cat([self.conv5(feature_maps[4]), x], dim=1))
-        print(" Normal before last conv ", x.shape)
+        #print(" Normal before last conv ", x.shape)
         x = self.plane_pred(x)
-        print(" Normal after last conv ", x.shape)
+        #print(" Normal after last conv ", x.shape)
 
         if self.crop:
             x = torch.nn.functional.interpolate(x, size=(480, 640), mode='bilinear')
@@ -1480,7 +1603,7 @@ class Plane(nn.Module):
             x = torch.nn.functional.interpolate(x, size=(640, 640), mode='bilinear')
             pass
 
-        print(" Normal after interpolate ", x.shape, " crop? ", self.crop)
+        #print(" Normal after interpolate ", x.shape, " crop? ", self.crop)
 
         return x
 
@@ -3055,8 +3178,8 @@ class MaskRCNN(nn.Module):
             layers = layer_regex[layers]
 
         # Data generators
-        train_generator = data_generator(train_dataset, self.config, shuffle=True, augment=True, batch_size=1)
-        val_generator = data_generator(val_dataset, self.config, shuffle=True, augment=True, batch_size=1)
+        train_generator = data_generator(train_dataset, self.config, shuffle=True, augment=True, batch_size=self.config.BATCH_SIZE)
+        val_generator = data_generator(val_dataset, self.config, shuffle=True, augment=True, batch_size=self.config.BATCH_SIZE)
 
         # Train
         log("\nStarting at epoch {}. LR={}\n".format(self.epoch + 1, learning_rate))
@@ -3839,7 +3962,7 @@ class DepthCNN(nn.Module):
                 gt_depths = gt_depths.cuda()
                 edges = edges.cuda()
 
-            # Run object detection
+            # Run depth detection
             pred_depth = self.predict([images], mode='training')[0]
 
             # print("gt shape: ", gt_depths.shape, " pred shape: ", pred_depth.shape)

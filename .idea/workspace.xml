@@ -3,27 +3,14 @@
   <component name="ChangeListManager">
     <list default="true" id="28cd88e7-d152-47fd-ad10-a3cb7e5e5014" name="Default Changelist" comment="Model modified for depth prediction.">
       <change afterPath="$PROJECT_DIR$/../NYU_depth_v2_extractor/nyusplits.mat" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.gitignore" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/sun/Preprocess_dataset-Depth.ipynb" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/../NYU_depth_v2_extractor/helper.py" beforeDir="false" afterPath="$PROJECT_DIR$/../NYU_depth_v2_extractor/helper.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/../NYU_depth_v2_extractor/sketch.py" beforeDir="false" afterPath="$PROJECT_DIR$/../NYU_depth_v2_extractor/sketch.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/README.md" beforeDir="false" afterPath="$PROJECT_DIR$/README.md" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/config_original.py" beforeDir="false" afterPath="$PROJECT_DIR$/config_original.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/evaluate_depth.py" beforeDir="false" afterPath="$PROJECT_DIR$/evaluate_depth.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/models/model.py" beforeDir="false" afterPath="$PROJECT_DIR$/models/model.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/models/model_maskdepthrcnn.py" beforeDir="false" afterPath="$PROJECT_DIR$/models/model_maskdepthrcnn.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/nyu.py" beforeDir="false" afterPath="$PROJECT_DIR$/nyu.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/sun/Preprocess_dataset-Normals.ipynb" beforeDir="false" afterPath="$PROJECT_DIR$/sun/Preprocess_dataset-Normals.ipynb" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/sun/Preprocess_dataset.ipynb" beforeDir="false" afterPath="$PROJECT_DIR$/sun/Preprocess_dataset.ipynb" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/sun/Read_big_Matlab_file.ipynb" beforeDir="false" afterPath="$PROJECT_DIR$/sun/Read_big_Matlab_file.ipynb" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/sun/inspect_sun_data.ipynb" beforeDir="false" afterPath="$PROJECT_DIR$/sun/inspect_sun_data.ipynb" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/sun/inspect_sun_weights.ipynb" beforeDir="false" afterPath="$PROJECT_DIR$/sun/inspect_sun_weights.ipynb" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/train_depthrcnn.py" beforeDir="false" afterPath="$PROJECT_DIR$/train_depthrcnn.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/train_nyu.py" beforeDir="false" afterPath="$PROJECT_DIR$/train_nyu.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/suncg.py" beforeDir="false" afterPath="$PROJECT_DIR$/suncg.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/train_suncg.py" beforeDir="false" afterPath="$PROJECT_DIR$/train_suncg.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/train_sunrgbd.py" beforeDir="false" afterPath="$PROJECT_DIR$/train_sunrgbd.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/utils.py" beforeDir="false" afterPath="$PROJECT_DIR$/utils.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/utils_original.py" beforeDir="false" afterPath="$PROJECT_DIR$/utils_original.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/visualize.py" beforeDir="false" afterPath="$PROJECT_DIR$/visualize.py" afterDir="false" />
     </list>
     <option name="EXCLUDED_CONVERTED_TO_IGNORED" value="true" />
     <option name="SHOW_DIALOG" value="false" />
@@ -60,28 +47,56 @@
     <favorites_list name="planercnn" />
   </component>
   <component name="FileEditorManager">
-    <leaf SIDE_TABS_SIZE_LIMIT_KEY="300">
+    <leaf>
       <file pinned="false" current-in-tab="false">
         <entry file="file://$PROJECT_DIR$/models/model_maskdepthrcnn.py">
           <provider selected="true" editor-type-id="text-editor">
-            <state relative-caret-position="-2806">
-              <caret line="336" column="25" selection-start-line="336" selection-start-column="25" selection-end-line="336" selection-end-column="25" />
+            <state relative-caret-position="526">
+              <caret line="2903" lean-forward="true" selection-start-line="2903" selection-end-line="2903" />
               <folding>
                 <element signature="e#212#227#0" expanded="true" />
                 <element signature="e#973#9630#0" />
                 <element signature="e#9681#10241#0" />
                 <element signature="e#10294#11038#0" />
-                <element signature="e#11680#12257#0" />
+                <element signature="e#23772#34195#0" />
+                <element signature="e#97588#103917#0" />
+                <element signature="e#104029#109671#0" />
+                <element signature="e#109778#114462#0" />
+                <element signature="e#114593#121035#0" />
+                <element signature="e#121132#126349#0" />
+                <element signature="e#125725#127351#0" />
+                <element signature="e#127487#132233#0" />
               </folding>
             </state>
           </provider>
         </entry>
       </file>
-      <file pinned="false" current-in-tab="true">
+      <file pinned="false" current-in-tab="false">
+        <entry file="file://$PROJECT_DIR$/visualize.py">
+          <provider selected="true" editor-type-id="text-editor">
+            <state relative-caret-position="629">
+              <caret line="508" column="21" lean-forward="true" selection-start-line="508" selection-start-column="21" selection-end-line="508" selection-end-column="21" />
+            </state>
+          </provider>
+        </entry>
+      </file>
+      <file pinned="false" current-in-tab="false">
+        <entry file="file://$PROJECT_DIR$/config.py">
+          <provider selected="true" editor-type-id="text-editor">
+            <state relative-caret-position="3094">
+              <caret line="224" column="23" selection-start-line="224" selection-start-column="13" selection-end-line="224" selection-end-column="23" />
+              <folding>
+                <element signature="e#1#12#0" expanded="true" />
+              </folding>
+            </state>
+          </provider>
+        </entry>
+      </file>
+      <file pinned="false" current-in-tab="false">
         <entry file="file://$PROJECT_DIR$/models/model.py">
           <provider selected="true" editor-type-id="text-editor">
-            <state relative-caret-position="226">
-              <caret line="1152" column="12" lean-forward="true" selection-start-line="1152" selection-start-column="12" selection-end-line="1152" selection-end-column="12" />
+            <state relative-caret-position="507">
+              <caret line="70" lean-forward="true" selection-start-line="70" selection-end-line="70" />
               <folding>
                 <element signature="e#212#227#0" expanded="true" />
                 <element signature="e#2387#2778#0" />
@@ -92,29 +107,49 @@
                 <element signature="e#5034#8371#0" />
                 <element signature="e#8546#9730#0" />
                 <element signature="e#9763#11709#0" />
-                <element signature="e#11894#12661#0" />
-                <element signature="e#19228#20862#0" />
-                <element signature="e#21053#22387#0" />
-                <element signature="e#22476#31019#0" />
-                <element signature="e#31203#31611#0" />
-                <element signature="e#31726#36846#0" />
-                <element signature="e#36994#37670#0" />
-                <element signature="e#36994#37180#1" />
-                <element signature="e#37849#40015#0" />
-                <element signature="e#40207#41613#0" />
-                <element signature="e#41643#43412#0" />
-                <element signature="e#163816#165325#0" />
-                <element signature="e#165434#168912#0" />
               </folding>
             </state>
           </provider>
         </entry>
       </file>
       <file pinned="false" current-in-tab="false">
+        <entry file="file://$PROJECT_DIR$/models/modules.py">
+          <provider selected="true" editor-type-id="text-editor">
+            <state relative-caret-position="756">
+              <caret line="285" column="23" selection-start-line="285" selection-start-column="23" selection-end-line="285" selection-end-column="23" />
+              <folding>
+                <element signature="e#398#6758#0" />
+                <element signature="e#6829#7374#0" />
+                <element signature="e#7448#8008#0" />
+                <element signature="e#8115#8489#0" />
+                <element signature="e#8592#10026#0" />
+                <element signature="e#10136#12803#0" />
+                <element signature="e#14712#15062#0" />
+                <element signature="e#15117#15236#0" />
+                <element signature="e#15274#15385#0" />
+                <element signature="e#15423#15539#0" />
+              </folding>
+            </state>
+          </provider>
+        </entry>
+      </file>
+      <file pinned="false" current-in-tab="false">
+        <entry file="file://$PROJECT_DIR$/utils.py">
+          <provider selected="true" editor-type-id="text-editor">
+            <state relative-caret-position="17150">
+              <caret line="1238" column="19" selection-start-line="1238" selection-start-column="19" selection-end-line="1238" selection-end-column="19" />
+              <folding>
+                <element signature="e#212#222#0" expanded="true" />
+              </folding>
+            </state>
+          </provider>
+        </entry>
+      </file>
+      <file pinned="false" current-in-tab="true">
         <entry file="file://$PROJECT_DIR$/train_suncg.py">
           <provider selected="true" editor-type-id="text-editor">
-            <state relative-caret-position="376">
-              <caret line="128" column="51" selection-start-line="128" selection-start-column="51" selection-end-line="128" selection-end-column="51" />
+            <state relative-caret-position="439">
+              <caret line="84" column="56" lean-forward="true" selection-start-line="84" selection-start-column="56" selection-end-line="84" selection-end-column="56" />
               <folding>
                 <element signature="e#0#9#0" expanded="true" />
               </folding>
@@ -123,47 +158,28 @@
         </entry>
       </file>
       <file pinned="false" current-in-tab="false">
-        <entry file="file://$PROJECT_DIR$/suncg.py">
+        <entry file="file://$PROJECT_DIR$/train_nyu.py">
           <provider selected="true" editor-type-id="text-editor">
-            <state relative-caret-position="278">
-              <caret line="103" column="53" selection-start-line="103" selection-start-column="53" selection-end-line="103" selection-end-column="53" />
+            <state relative-caret-position="322">
+              <caret line="111" column="31" lean-forward="true" selection-start-line="111" selection-start-column="31" selection-end-line="111" selection-end-column="31" />
               <folding>
-                <element signature="e#1076#1085#0" expanded="true" />
-                <element signature="e#6191#6901#0" />
-                <element signature="e#6978#8851#0" />
+                <element signature="e#0#9#0" expanded="true" />
+                <element signature="e#628#2419#0" />
               </folding>
             </state>
           </provider>
         </entry>
       </file>
-      <file pinned="true" current-in-tab="false">
-        <entry file="remoteDeploymentFS://&lt;de015f91-8154-4fa3-ac90-25e423bcd77c&gt;/planercnn/checkpoints/suncg20191001T1239/loss.png">
-          <provider selected="true" editor-type-id="images" />
-        </entry>
-      </file>
-      <file pinned="true" current-in-tab="false">
-        <entry file="remoteDeploymentFS://&lt;de015f91-8154-4fa3-ac90-25e423bcd77c&gt;/planercnn/checkpoints/suncg20191001T1239/mrcnn_bbox_loss.png">
-          <provider selected="true" editor-type-id="images" />
-        </entry>
-      </file>
-      <file pinned="true" current-in-tab="false">
-        <entry file="remoteDeploymentFS://&lt;de015f91-8154-4fa3-ac90-25e423bcd77c&gt;/planercnn/checkpoints/suncg20191001T1239/mrcnn_class_loss.png">
-          <provider selected="true" editor-type-id="images" />
-        </entry>
-      </file>
-      <file pinned="true" current-in-tab="false">
-        <entry file="remoteDeploymentFS://&lt;de015f91-8154-4fa3-ac90-25e423bcd77c&gt;/planercnn/checkpoints/suncg20191001T1239/mrcnn_mask_loss.png">
-          <provider selected="true" editor-type-id="images" />
-        </entry>
-      </file>
-      <file pinned="true" current-in-tab="false">
-        <entry file="remoteDeploymentFS://&lt;de015f91-8154-4fa3-ac90-25e423bcd77c&gt;/planercnn/checkpoints/suncg20191001T1239/rpn_bbox_loss.png">
-          <provider selected="true" editor-type-id="images" />
-        </entry>
-      </file>
-      <file pinned="true" current-in-tab="false">
-        <entry file="remoteDeploymentFS://&lt;de015f91-8154-4fa3-ac90-25e423bcd77c&gt;/planercnn/checkpoints/suncg20191001T1239/rpn_class_loss.png">
-          <provider selected="true" editor-type-id="images" />
+      <file pinned="false" current-in-tab="false">
+        <entry file="file://$PROJECT_DIR$/suncg.py">
+          <provider selected="true" editor-type-id="text-editor">
+            <state relative-caret-position="770">
+              <caret line="64" column="18" selection-start-line="64" selection-start-column="18" selection-end-line="64" selection-end-column="18" />
+              <folding>
+                <element signature="e#1076#1085#0" expanded="true" />
+              </folding>
+            </state>
+          </provider>
         </entry>
       </file>
     </leaf>
@@ -177,36 +193,36 @@
   </component>
   <component name="FindInProjectRecents">
     <findStrings>
-      <find>56</find>
-      <find>load_mask</find>
-      <find>extract_bboxes</find>
-      <find>load_image_</find>
-      <find>CropAndResizeFunction</find>
-      <find>detection_target_layer_</find>
-      <find>resize_mask</find>
-      <find>load_image_gt</find>
-      <find>detection_target_depth</find>
-      <find>self.mask</find>
-      <find>Mask</find>
-      <find>shift_depth_target</find>
-      <find>Mask(</find>
-      <find>minimize_mask</find>
-      <find>l2LossMask</find>
-      <find>NYUDepthDataset</find>
-      <find>train_epoch</find>
-      <find>compute_losses</find>
-      <find>compute_depth_loss</find>
-      <find>mask</find>
-      <find>mask(</find>
-      <find>MINI_MASK_SHAPE</find>
+      <find>pool_size</find>
       <find>pyramid_roi_align</find>
-      <find>Depth</find>
-      <find>DepthCNN</find>
+      <find>roi_align</find>
+      <find>train_epoch</find>
+      <find>compose_image_meta</find>
+      <find>loss</find>
+      <find>proposals</find>
+      <find>proposal_layer</find>
+      <find>apply_box_deltas</find>
+      <find>datagenerator</find>
+      <find>data_generator</find>
+      <find>print</find>
+      <find># print(</find>
+      <find># print</find>
+      <find>save</find>
+      <find>predict</find>
+      <find>compute_losses_</find>
       <find>data_generator_onlydepth</find>
-      <find>DepthMask</find>
-      <find>DEPTH_THRESHOLD</find>
-      <find>Depth(</find>
-      <find>rescale_depth_target</find>
+      <find>compute_losses</find>
+      <find>data_generator2</find>
+      <find>apply_mask</find>
+      <find>batch</find>
+      <find>plot_loss</find>
+      <find>GRAD</find>
+      <find>GRAD_LOSS</find>
+      <find>compute_depth_loss</find>
+      <find>print</find>
+      <find>print</find>
+      <find>printProgressBar</find>
+      <find>print(</find>
     </findStrings>
   </component>
   <component name="Git.Settings">
@@ -255,24 +271,24 @@
         <option value="$PROJECT_DIR$/../../../Workspaces/competitive_python/leetcode/4.py" />
         <option value="$PROJECT_DIR$/config.py" />
         <option value="$PROJECT_DIR$/sun.py" />
-        <option value="$PROJECT_DIR$/visualize.py" />
         <option value="&lt;de015f91-8154-4fa3-ac90-25e423bcd77c&gt;/extract_suncg_masks.py" />
-        <option value="$PROJECT_DIR$/suncg.py" />
         <option value="$PROJECT_DIR$/train_sunrgbd.py" />
-        <option value="$PROJECT_DIR$/train_suncg.py" />
-        <option value="$PROJECT_DIR$/utils.py" />
         <option value="$PROJECT_DIR$/nyu.py" />
         <option value="$PROJECT_DIR$/evaluate_depth.py" />
-        <option value="$PROJECT_DIR$/models/modules.py" />
         <option value="$PROJECT_DIR$/train_nyu.py" />
+        <option value="$PROJECT_DIR$/utils.py" />
+        <option value="$PROJECT_DIR$/models/modules.py" />
+        <option value="$PROJECT_DIR$/suncg.py" />
+        <option value="$PROJECT_DIR$/visualize.py" />
         <option value="$PROJECT_DIR$/models/model.py" />
         <option value="$PROJECT_DIR$/models/model_maskdepthrcnn.py" />
+        <option value="$PROJECT_DIR$/train_suncg.py" />
       </list>
     </option>
   </component>
   <component name="ProjectFrameBounds">
-    <option name="x" value="59" />
-    <option name="y" value="110" />
+    <option name="x" value="20" />
+    <option name="y" value="52" />
     <option name="width" value="1277" />
     <option name="height" value="746" />
   </component>
@@ -496,7 +512,7 @@
       <workItem from="1568373750402" duration="791000" />
       <workItem from="1568385213195" duration="32505000" />
       <workItem from="1569307851910" duration="11952000" />
-      <workItem from="1569793089786" duration="46944000" />
+      <workItem from="1569793089786" duration="69205000" />
     </task>
     <task id="LOCAL-00001" summary="Model modified for depth prediction.">
       <created>1562099528257</created>
@@ -537,7 +553,7 @@
     </history-entry>
   </component>
   <component name="TimeTrackingManager">
-    <option name="totallyTimeSpent" value="493520000" />
+    <option name="totallyTimeSpent" value="515781000" />
   </component>
   <component name="TodoView" selected-index="4">
     <todo-panel id="selected-file">
@@ -549,15 +565,15 @@
     </todo-panel>
   </component>
   <component name="ToolWindowManager">
-    <frame x="59" y="110" width="1277" height="746" extended-state="0" />
+    <frame x="20" y="52" width="1277" height="746" extended-state="0" />
     <editor active="true" />
     <layout>
       <window_info id="Favorites" order="0" sideWeight="0.50108933" side_tool="true" weight="0.22570124" />
-      <window_info content_ui="combo" id="Project" order="1" sideWeight="0.49891067" weight="0.23481782" />
+      <window_info content_ui="combo" id="Project" order="1" sideWeight="0.49891067" weight="0.1562753" />
       <window_info id="Structure" order="2" sideWeight="0.50108933" side_tool="true" weight="0.22570124" />
-      <window_info id="Remote Host" order="3" weight="0.30040485" />
+      <window_info active="true" id="Remote Host" order="3" visible="true" weight="0.345749" />
       <window_info anchor="bottom" id="Message" order="0" />
-      <window_info anchor="bottom" id="Find" order="1" />
+      <window_info anchor="bottom" id="Find" order="1" weight="0.3296355" />
       <window_info anchor="bottom" id="Run" order="2" weight="0.20977011" />
       <window_info anchor="bottom" id="Debug" order="3" weight="0.4" />
       <window_info anchor="bottom" id="Cvs" order="4" weight="0.25" />
@@ -565,17 +581,42 @@
       <window_info anchor="bottom" id="TODO" order="6" weight="0.3299712" />
       <window_info anchor="bottom" id="Docker" order="7" show_stripe_button="false" />
       <window_info anchor="bottom" id="Version Control" order="8" weight="0.19749652" />
-      <window_info anchor="bottom" id="File Transfer" order="9" sideWeight="0.49885058" visible="true" weight="0.1822504" />
+      <window_info anchor="bottom" id="File Transfer" order="9" sideWeight="0.49885058" weight="0.1822504" />
       <window_info anchor="bottom" id="Database Changes" order="10" />
       <window_info anchor="bottom" id="Terminal" order="11" weight="0.32897604" />
       <window_info anchor="bottom" id="Event Log" order="12" sideWeight="0.5011494" side_tool="true" weight="0.09454061" />
       <window_info anchor="bottom" id="Python Console" order="13" weight="0.32897604" />
-      <window_info anchor="right" id="SciView" order="0" weight="0.32994062" />
+      <window_info anchor="right" id="SciView" order="0" weight="0.32955465" />
       <window_info anchor="right" id="Database" order="1" weight="0.32970297" />
       <window_info anchor="right" id="Commander" internal_type="SLIDING" order="2" type="SLIDING" weight="0.4" />
       <window_info anchor="right" id="Ant Build" order="3" weight="0.25" />
       <window_info anchor="right" content_ui="combo" id="Hierarchy" order="4" weight="0.25" />
     </layout>
+    <layout-to-restore>
+      <window_info id="Favorites" order="0" sideWeight="0.50108933" side_tool="true" weight="0.22570124" />
+      <window_info content_ui="combo" id="Project" order="1" sideWeight="0.49891067" weight="0.1562753" />
+      <window_info id="Structure" order="2" sideWeight="0.50108933" side_tool="true" weight="0.22570124" />
+      <window_info id="Remote Host" order="3" visible="true" weight="0.11255061" />
+      <window_info anchor="bottom" id="Message" order="0" />
+      <window_info anchor="bottom" id="Find" order="1" weight="0.3296355" />
+      <window_info anchor="bottom" id="Run" order="2" weight="0.20977011" />
+      <window_info anchor="bottom" id="Debug" order="3" weight="0.4" />
+      <window_info anchor="bottom" id="Cvs" order="4" weight="0.25" />
+      <window_info anchor="bottom" id="Inspection" order="5" weight="0.4" />
+      <window_info anchor="bottom" id="TODO" order="6" weight="0.3299712" />
+      <window_info anchor="bottom" id="Docker" order="7" show_stripe_button="false" />
+      <window_info anchor="bottom" id="Version Control" order="8" weight="0.19749652" />
+      <window_info anchor="bottom" id="File Transfer" order="9" sideWeight="0.49885058" weight="0.1822504" />
+      <window_info anchor="bottom" id="Database Changes" order="10" />
+      <window_info anchor="bottom" id="Terminal" order="11" weight="0.32897604" />
+      <window_info anchor="bottom" id="Event Log" order="12" sideWeight="0.5011494" side_tool="true" weight="0.09454061" />
+      <window_info anchor="bottom" id="Python Console" order="13" weight="0.32897604" />
+      <window_info anchor="right" id="SciView" order="0" weight="0.32955465" />
+      <window_info anchor="right" id="Database" order="1" weight="0.32970297" />
+      <window_info anchor="right" id="Commander" internal_type="SLIDING" order="2" type="SLIDING" weight="0.4" />
+      <window_info anchor="right" id="Ant Build" order="3" weight="0.25" />
+      <window_info anchor="right" content_ui="combo" id="Hierarchy" order="4" weight="0.25" />
+    </layout-to-restore>
   </component>
   <component name="TypeScriptGeneratedFilesManager">
     <option name="version" value="1" />
@@ -827,16 +868,6 @@
         </state>
       </provider>
     </entry>
-    <entry file="file://$PROJECT_DIR$/config.py">
-      <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="204">
-          <caret line="96" column="19" selection-start-line="96" selection-start-column="4" selection-end-line="96" selection-end-column="19" />
-          <folding>
-            <element signature="e#1#12#0" expanded="true" />
-          </folding>
-        </state>
-      </provider>
-    </entry>
     <entry file="file://$PROJECT_DIR$/train_sunrgbd.py">
       <provider selected="true" editor-type-id="text-editor">
         <state relative-caret-position="421">
@@ -873,13 +904,6 @@
           <folding>
             <element signature="e#212#223#0" expanded="true" />
           </folding>
-        </state>
-      </provider>
-    </entry>
-    <entry file="file://$PROJECT_DIR$/visualize.py">
-      <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="283">
-          <caret line="431" lean-forward="true" selection-start-line="431" selection-end-line="431" />
         </state>
       </provider>
     </entry>
@@ -934,16 +958,6 @@
         </state>
       </provider>
     </entry>
-    <entry file="file://$PROJECT_DIR$/utils.py">
-      <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="185">
-          <caret line="658" column="55" selection-start-line="658" selection-start-column="55" selection-end-line="658" selection-end-column="55" />
-          <folding>
-            <element signature="e#212#222#0" expanded="true" />
-          </folding>
-        </state>
-      </provider>
-    </entry>
     <entry file="file://$PROJECT_DIR$/nyu.py">
       <provider selected="true" editor-type-id="text-editor">
         <state relative-caret-position="642">
@@ -990,10 +1004,30 @@
         </state>
       </provider>
     </entry>
+    <entry file="file://$PROJECT_DIR$/suncg.py">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="770">
+          <caret line="64" column="18" selection-start-line="64" selection-start-column="18" selection-end-line="64" selection-end-column="18" />
+          <folding>
+            <element signature="e#1076#1085#0" expanded="true" />
+          </folding>
+        </state>
+      </provider>
+    </entry>
+    <entry file="file://$PROJECT_DIR$/utils.py">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="17150">
+          <caret line="1238" column="19" selection-start-line="1238" selection-start-column="19" selection-end-line="1238" selection-end-column="19" />
+          <folding>
+            <element signature="e#212#222#0" expanded="true" />
+          </folding>
+        </state>
+      </provider>
+    </entry>
     <entry file="file://$PROJECT_DIR$/models/modules.py">
       <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="599">
-          <caret line="354" column="32" lean-forward="true" selection-start-line="354" selection-start-column="32" selection-end-line="354" selection-end-column="32" />
+        <state relative-caret-position="756">
+          <caret line="285" column="23" selection-start-line="285" selection-start-column="23" selection-end-line="285" selection-end-column="23" />
           <folding>
             <element signature="e#398#6758#0" />
             <element signature="e#6829#7374#0" />
@@ -1001,70 +1035,67 @@
             <element signature="e#8115#8489#0" />
             <element signature="e#8592#10026#0" />
             <element signature="e#10136#12803#0" />
-            <element signature="e#12845#14670#0" />
             <element signature="e#14712#15062#0" />
             <element signature="e#15117#15236#0" />
+            <element signature="e#15274#15385#0" />
             <element signature="e#15423#15539#0" />
-            <element signature="e#16051#16811#0" />
-            <element signature="e#15837#17725#0" />
-            <element signature="e#17782#18830#0" />
           </folding>
+        </state>
+      </provider>
+    </entry>
+    <entry file="file://$PROJECT_DIR$/config.py">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="3094">
+          <caret line="224" column="23" selection-start-line="224" selection-start-column="13" selection-end-line="224" selection-end-column="23" />
+          <folding>
+            <element signature="e#1#12#0" expanded="true" />
+          </folding>
+        </state>
+      </provider>
+    </entry>
+    <entry file="file://$PROJECT_DIR$/visualize.py">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="629">
+          <caret line="508" column="21" lean-forward="true" selection-start-line="508" selection-start-column="21" selection-end-line="508" selection-end-column="21" />
         </state>
       </provider>
     </entry>
     <entry file="file://$PROJECT_DIR$/train_nyu.py">
       <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="367">
-          <caret line="172" lean-forward="true" selection-start-line="172" selection-end-line="172" />
+        <state relative-caret-position="322">
+          <caret line="111" column="31" lean-forward="true" selection-start-line="111" selection-start-column="31" selection-end-line="111" selection-end-column="31" />
           <folding>
             <element signature="e#0#9#0" expanded="true" />
             <element signature="e#628#2419#0" />
-            <element signature="e#2460#3631#0" />
-            <element signature="e#3661#4581#0" />
-          </folding>
-        </state>
-      </provider>
-    </entry>
-    <entry file="file://$PROJECT_DIR$/suncg.py">
-      <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="278">
-          <caret line="103" column="53" selection-start-line="103" selection-start-column="53" selection-end-line="103" selection-end-column="53" />
-          <folding>
-            <element signature="e#1076#1085#0" expanded="true" />
-            <element signature="e#6191#6901#0" />
-            <element signature="e#6978#8851#0" />
-          </folding>
-        </state>
-      </provider>
-    </entry>
-    <entry file="file://$PROJECT_DIR$/train_suncg.py">
-      <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="376">
-          <caret line="128" column="51" selection-start-line="128" selection-start-column="51" selection-end-line="128" selection-end-column="51" />
-          <folding>
-            <element signature="e#0#9#0" expanded="true" />
           </folding>
         </state>
       </provider>
     </entry>
     <entry file="file://$PROJECT_DIR$/models/model_maskdepthrcnn.py">
       <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="-2806">
-          <caret line="336" column="25" selection-start-line="336" selection-start-column="25" selection-end-line="336" selection-end-column="25" />
+        <state relative-caret-position="526">
+          <caret line="2903" lean-forward="true" selection-start-line="2903" selection-end-line="2903" />
           <folding>
             <element signature="e#212#227#0" expanded="true" />
             <element signature="e#973#9630#0" />
             <element signature="e#9681#10241#0" />
             <element signature="e#10294#11038#0" />
-            <element signature="e#11680#12257#0" />
+            <element signature="e#23772#34195#0" />
+            <element signature="e#97588#103917#0" />
+            <element signature="e#104029#109671#0" />
+            <element signature="e#109778#114462#0" />
+            <element signature="e#114593#121035#0" />
+            <element signature="e#121132#126349#0" />
+            <element signature="e#125725#127351#0" />
+            <element signature="e#127487#132233#0" />
           </folding>
         </state>
       </provider>
     </entry>
     <entry file="file://$PROJECT_DIR$/models/model.py">
       <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="226">
-          <caret line="1152" column="12" lean-forward="true" selection-start-line="1152" selection-start-column="12" selection-end-line="1152" selection-end-column="12" />
+        <state relative-caret-position="507">
+          <caret line="70" lean-forward="true" selection-start-line="70" selection-end-line="70" />
           <folding>
             <element signature="e#212#227#0" expanded="true" />
             <element signature="e#2387#2778#0" />
@@ -1075,19 +1106,16 @@
             <element signature="e#5034#8371#0" />
             <element signature="e#8546#9730#0" />
             <element signature="e#9763#11709#0" />
-            <element signature="e#11894#12661#0" />
-            <element signature="e#19228#20862#0" />
-            <element signature="e#21053#22387#0" />
-            <element signature="e#22476#31019#0" />
-            <element signature="e#31203#31611#0" />
-            <element signature="e#31726#36846#0" />
-            <element signature="e#36994#37670#0" />
-            <element signature="e#36994#37180#1" />
-            <element signature="e#37849#40015#0" />
-            <element signature="e#40207#41613#0" />
-            <element signature="e#41643#43412#0" />
-            <element signature="e#163816#165325#0" />
-            <element signature="e#165434#168912#0" />
+          </folding>
+        </state>
+      </provider>
+    </entry>
+    <entry file="file://$PROJECT_DIR$/train_suncg.py">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="439">
+          <caret line="84" column="56" lean-forward="true" selection-start-line="84" selection-start-column="56" selection-end-line="84" selection-end-column="56" />
+          <folding>
+            <element signature="e#0#9#0" expanded="true" />
           </folding>
         </state>
       </provider>

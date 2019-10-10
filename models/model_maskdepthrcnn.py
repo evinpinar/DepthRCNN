@@ -905,6 +905,8 @@ def data_generator2(dataset, config, shuffle=True, augment=False, augmentation=N
             if b == 0:
                 batch_image_meta = np.zeros(
                     (batch_size,) + image_meta.shape, dtype=image_meta.dtype)
+                batch_depth = np.zeros(
+                    (batch_size,) + gt_depth.shape, dtype=np.float32)
                 batch_rpn_match = np.zeros(
                     [batch_size, anchors.shape[0], 1], dtype=rpn_match.dtype)
                 batch_rpn_bbox = np.zeros(
@@ -939,6 +941,7 @@ def data_generator2(dataset, config, shuffle=True, augment=False, augmentation=N
 
             # Add to batch
             batch_image_meta[b] = image_meta
+            batch_depth[b] = gt_depth.astype(np.float32)
             batch_rpn_match[b] = rpn_match[:, np.newaxis]
             batch_rpn_bbox[b] = rpn_bbox
             batch_images[b] = mold_image(image.astype(np.float32), config)
@@ -948,8 +951,8 @@ def data_generator2(dataset, config, shuffle=True, augment=False, augmentation=N
             batch_gt_depths[b, :, :, :gt_masks.shape[-1]] = gt_depths.astype(np.float32)
             if config.PREDICT_NORMAL:
                 batch_gt_normals[b, :, :, :, :gt_masks.shape[-1]] = gt_normals.astype(np.float32)
-            else:
-                batch_gt_normals = np.zeros([1,1,1,1,1])
+            #else:
+            #    batch_gt_normals = np.zeros([1,1,1,1,1])
             #gt_masked_depths[b] = gt_depth.astype(np.float32)
             b += 1
 
@@ -964,13 +967,13 @@ def data_generator2(dataset, config, shuffle=True, augment=False, augmentation=N
                        torch.from_numpy(batch_gt_boxes.astype(np.float32)),
                        torch.from_numpy(batch_gt_masks.astype(np.float32).transpose(0, 3, 1, 2)),
                        torch.from_numpy(batch_gt_depths.astype(np.float32).transpose(0, 3, 1, 2)),
-                       torch.from_numpy(batch_gt_normals.astype(np.float32).transpose(0, 4, 3, 1, 2))]
+                       torch.from_numpy(batch_gt_normals.astype(np.float32).transpose(0, 4, 3, 1, 2)),
+                       torch.from_numpy(batch_depth.astype(np.float32))]
                        #torch.from_numpy(batch_depth.astype(np.float32))]
 
                 #inputs = [batch_images, batch_image_meta, batch_rpn_match, batch_rpn_bbox,
                 #          batch_gt_class_ids, batch_gt_boxes, batch_gt_masks]
                 #outputs = []
-
 
                 #yield inputs, outputs
 
@@ -1139,9 +1142,6 @@ def data_generator3(dataset, config, shuffle=True, augment=False, augmentation=N
             batch_gt_depths[b, :, :, :gt_masks.shape[-1]] = gt_depths.astype(np.float32)
             if config.PREDICT_NORMAL:
                 batch_gt_normals[b, :, :, :, :gt_masks.shape[-1]] = gt_normals.astype(np.float32)
-            else:
-                batch_gt_normals = np.zeros([1,1,1,1,1])
-            #gt_masked_depths[b] = gt_depth.astype(np.float32)
             b += 1
 
             # Batch full?
@@ -1205,28 +1205,36 @@ class DepthMask(nn.Module):
         self.relu = nn.ReLU(inplace=True)
 
     def forward(self, x, rois, pool_features=True):
+       # print("This is depth prediction!! ")
+       # print(" x: ", x[0].shape, x[1].shape, x[2].shape, x[3].shape, " rois: ", len(rois))
+       # print(" pool size: ", self.pool_size, " image shape: ", self.image_shape)
         if pool_features:
             roi_features = pyramid_roi_align([rois] + x, self.pool_size, self.image_shape)
         else:
             roi_features = x
             pass
+       # print("Roi features shape" , roi_features.shape)
         x = self.conv1(self.padding(roi_features))
         x = self.bn1(x)
         x = self.relu(x)
+       # print("Layer 1: ", x.shape)
         x = self.conv2(self.padding(x))
         x = self.bn2(x)
         x = self.relu(x)
+       # print("Layer 2: ", x.shape)
         x = self.conv3(self.padding(x))
         x = self.bn3(x)
         x = self.relu(x)
+       # print("Layer 3: ", x.shape)
         x = self.conv4(self.padding(x))
         x = self.bn4(x)
         x = self.relu(x)
+       # print("Layer 4: ", x.shape)
         x = self.deconv(x)
         x = self.relu(x)
-        # print(" roi depth before last conv: ", x.shape)
+       # print(" Deconv applied: ", x.shape)
         x = self.conv5(x)
-        # print(" roi depth after last conv: ", x.shape)
+       # print("Layer 6 : ", x.shape)
         #x = self.sigmoid(x)
 
         return x, roi_features
@@ -1396,7 +1404,7 @@ class NormalMask(nn.Module):
 
 def compute_depth_loss_L1(target_depth, pred_depth, thresh=0):
 
-    # TODO: Modify for batch.
+    # TODO: Modify for batch?
 
     loss = l1LossMask(pred_depth, target_depth,
                       (target_depth > thresh).float())
@@ -1405,7 +1413,7 @@ def compute_depth_loss_L1(target_depth, pred_depth, thresh=0):
 
 def compute_depth_loss_L2(target_depth, pred_depth, thresh=0):
 
-    # TODO: Modify for batch.
+    # TODO: Modify for batch?
 
     loss = l2LossMask(pred_depth, target_depth,
                       (target_depth > thresh).float())
@@ -1414,7 +1422,7 @@ def compute_depth_loss_L2(target_depth, pred_depth, thresh=0):
 
 def compute_depth_loss_berHu(target, pred, thresh=0):
 
-    # TODO: Modify for batch.
+    # TODO: Modify for batch?
 
     assert pred.dim() == target.dim(), "inconsistent dimensions"
     diff = torch.abs(target - pred)
@@ -1507,7 +1515,8 @@ def compute_mrcnn_plane_loss(config, target_normal, target_class_ids, pred_norma
 
 ## Loss function with maskrcnn_depth loss
 def compute_losses_(config, rpn_match, rpn_bbox, rpn_class_logits, rpn_pred_bbox, target_class_ids, mrcnn_class_logits,
-                    target_deltas, mrcnn_bbox, target_mask, mrcnn_mask, target_depth, pred_depth, target_normal, pred_normal):
+                    target_deltas, mrcnn_bbox, target_mask, mrcnn_mask, target_depth, pred_depth,
+                    target_normal, pred_normal, target_global_depth, global_depth_pred):
     rpn_class_loss = compute_rpn_class_loss(rpn_match, rpn_class_logits)
     rpn_bbox_loss = compute_rpn_bbox_loss(rpn_bbox, rpn_match, rpn_pred_bbox)
     mrcnn_class_loss = compute_mrcnn_class_loss(target_class_ids, mrcnn_class_logits)
@@ -1518,10 +1527,15 @@ def compute_losses_(config, rpn_match, rpn_bbox, rpn_class_logits, rpn_pred_bbox
     if config.PREDICT_DEPTH:
         depth_loss = compute_mrcnn_depth_loss(config, target_depth, target_class_ids, pred_depth)
 
+    global_depth_loss = torch.tensor([0], dtype=torch.float32)
+    if config.PREDICT_GLOBAL_DEPTH:
+        global_depth_loss = compute_depth_loss(target_global_depth, global_depth_pred, config)
+
     normal_loss = torch.tensor([0], dtype=torch.float32)
     if config.PREDICT_NORMAL:
         normal_loss = compute_mrcnn_plane_loss(config, target_normal, target_class_ids, pred_normal)
-    return [rpn_class_loss, rpn_bbox_loss, mrcnn_class_loss, mrcnn_bbox_loss, mrcnn_mask_loss, depth_loss, normal_loss]
+    return [rpn_class_loss, rpn_bbox_loss, mrcnn_class_loss, mrcnn_bbox_loss, mrcnn_mask_loss, depth_loss,
+            normal_loss, global_depth_loss]
 
 
 ############################################################
@@ -1547,6 +1561,7 @@ class MaskDepthRCNN(nn.Module):
         self.initialize_weights()
         self.loss_history = []
         self.val_loss_history = []
+        self.optimizer = None
 
     def build(self, config):
         """Build Mask R-CNN architecture.
@@ -1593,6 +1608,9 @@ class MaskDepthRCNN(nn.Module):
 
         ## FPN Depth
         self.depthmask = DepthMask(config, 256, config.MASK_POOL_SIZE, config.IMAGE_SHAPE, config.NUM_CLASSES)
+
+        ## Global Depth
+        self.depth = Depth(num_output_channels=1)
 
         ## FPN Normal
         self.normalmask = NormalMask(config, 256, config.MASK_POOL_SIZE, config.IMAGE_SHAPE, config.NUM_CLASSES)
@@ -1714,7 +1732,7 @@ class MaskDepthRCNN(nn.Module):
                 try:
                     self.load_state_dict(state_dict, strict=False)
                 except:
-                    print('load only base model')
+                   # print('load only base model')
                     try:
                         state_dict = {k: v for k, v in state_dict.items() if
                                       'classifier.linear_class' not in k and 'classifier.linear_bbox' not in k and 'mask.conv5' not in k}
@@ -1722,7 +1740,7 @@ class MaskDepthRCNN(nn.Module):
                         state.update(state_dict)
                         self.load_state_dict(state)
                     except:
-                        print('change input dimension')
+                       # print('change input dimension')
                         state_dict = {k: v for k, v in state_dict.items() if
                                       'classifier.linear_class' not in k and 'classifier.linear_bbox' not in k and 'mask.conv5' not in k and 'fpn.C1.0' not in k and 'classifier.conv1' not in k}
                         state = self.state_dict()
@@ -1731,7 +1749,7 @@ class MaskDepthRCNN(nn.Module):
                         pass
                     pass
         else:
-            print("Weight file not found ...")
+           # print("Weight file not found ...")
             exit(1)
         ## Update the log directory
         self.set_log_dir(filepath)
@@ -1788,8 +1806,8 @@ class MaskDepthRCNN(nn.Module):
                 self.unmold_detections(self.config, detections[i], mrcnn_mask[i],
                                        mrcnn_depth[i], mrcnn_normals[i], image.shape, windows[i])
 
-            print(" mask shape: ", mrcnn_mask.shape)
-            print(" unmolded mask shape: ", final_masks.shape)
+           # print(" mask shape: ", mrcnn_mask.shape)
+           # print(" unmolded mask shape: ", final_masks.shape)
 
             results.append({
                 "rois": final_rois,
@@ -1826,6 +1844,12 @@ class MaskDepthRCNN(nn.Module):
         mrcnn_feature_maps = [p2_out, p3_out, p4_out, p5_out]
 
         feature_maps = [feature_map for index, feature_map in enumerate(rpn_feature_maps[::-1])]
+
+        if self.config.PREDICT_GLOBAL_DEPTH:
+            global_depth = self.depth(feature_maps)
+            global_depth = global_depth.squeeze(1)
+        else:
+            global_depth = torch.ones((1, self.config.IMAGE_MAX_DIM, self.config.IMAGE_MAX_DIM)).cuda()
 
         ## Loop through pyramid layers
         layer_outputs = []  ## list of lists
@@ -1899,7 +1923,7 @@ class MaskDepthRCNN(nn.Module):
             mrcnn_mask = mrcnn_mask.unsqueeze(0)
             mrcnn_depth = mrcnn_depth.unsqueeze(0)
             mrcnn_normal = mrcnn_normal.unsqueeze(0)
-            return [detections, mrcnn_mask, mrcnn_depth, mrcnn_normal]
+            return [detections, mrcnn_mask, mrcnn_depth, mrcnn_normal, global_depth]
 
         elif mode == 'training':
 
@@ -1971,7 +1995,7 @@ class MaskDepthRCNN(nn.Module):
                     mrcnn_normal = Variable(torch.FloatTensor()).cuda()
 
             return [rpn_class_logits, rpn_bbox, target_class_ids, mrcnn_class_logits, target_deltas, mrcnn_bbox,
-                    target_mask, mrcnn_mask, rois, target_depth, mrcnn_depth, target_normals, mrcnn_normal]
+                    target_mask, mrcnn_mask, rois, target_depth, mrcnn_depth, target_normals, mrcnn_normal, global_depth]
 
     ## Scaled roi prediction instead of shifting
     def predict2(self, input, mode, use_nms=1, use_refinement=False, return_feature_map=False):
@@ -2018,6 +2042,7 @@ class MaskDepthRCNN(nn.Module):
         ## and zero padded.
         proposal_count = self.config.POST_NMS_ROIS_TRAINING if 'training' in mode and use_refinement == False \
             else self.config.POST_NMS_ROIS_INFERENCE
+       # print("Generate proposals: rpn shape", rpn_class.shape, " rpn bbox: ", rpn_bbox.shape)
         rpn_rois = proposal_layer([rpn_class, rpn_bbox],
                                   proposal_count=proposal_count,
                                   nms_threshold=self.config.RPN_NMS_THRESHOLD,
@@ -2146,7 +2171,9 @@ class MaskDepthRCNN(nn.Module):
             return [rpn_class_logits, rpn_bbox, target_class_ids, mrcnn_class_logits, target_deltas, mrcnn_bbox,
                     target_mask, mrcnn_mask, rois, target_depth, mrcnn_depth, target_normals, mrcnn_normal]
 
-    def train_model2(self, train_dataset, val_dataset, learning_rate, epochs, layers, depth_weight=1, augmentation=None):
+    def train_model2(self, train_dataset, val_dataset, learning_rate, epochs, layers,
+                     depth_weight=1, augmentation=None, checkpoint_dir_prev=None, continue_train=False,
+                     global_depth_weight=1):
         """Train the model.
         train_dataset, val_dataset: Training and validation Dataset objects.
         learning_rate: The learning rate to train with
@@ -2179,12 +2206,11 @@ class MaskDepthRCNN(nn.Module):
             layers = layer_regex[layers]
 
         # Data generators
-        train_generator = data_generator2(train_dataset, self.config, shuffle=True, augment=False, batch_size=1, augmentation=augmentation)
+        train_generator = data_generator2(train_dataset, self.config, shuffle=True, augment=False, batch_size=self.config.BATCH_SIZE, augmentation=augmentation)
         val_generator = data_generator2(val_dataset, self.config, shuffle=True, augment=False, batch_size=1, augmentation=augmentation)
 
         # Train
-        log("\nStarting at epoch {}. LR={}\n".format(self.epoch + 1, learning_rate))
-        log("Checkpoint Path: {}".format(self.checkpoint_path))
+
         self.set_trainable(layers)
 
         # Optimizer object
@@ -2193,23 +2219,43 @@ class MaskDepthRCNN(nn.Module):
         trainables_wo_bn = [param for name, param in self.named_parameters() if
                             param.requires_grad and not 'bn' in name]
         trainables_only_bn = [param for name, param in self.named_parameters() if param.requires_grad and 'bn' in name]
-        optimizer = optim.SGD([
-            {'params': trainables_wo_bn, 'weight_decay': self.config.WEIGHT_DECAY},
-            {'params': trainables_only_bn}
-        ], lr=learning_rate, momentum=self.config.LEARNING_MOMENTUM)
+
+
+
+        if continue_train:
+            # Continue training for same checkpoint eg. trainable layers change
+            optimizer = self.optimizer
+        else:
+            # Start new training session
+            optimizer = optim.SGD([
+                {'params': trainables_wo_bn, 'weight_decay': self.config.WEIGHT_DECAY},
+                {'params': trainables_only_bn}
+            ], lr=learning_rate, momentum=self.config.LEARNING_MOMENTUM)
+
+        if checkpoint_dir_prev:
+            # Continue training from a given checkpoint
+            log("Continue from checkpoint: {}".format(self.checkpoint_dir_prev))
+            checkpoint = torch.load(checkpoint_dir_prev)
+            self.load_state_dict(checkpoint['model_state_dict'])
+            optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+
+
+        log("\nStarting at epoch {}. LR={}\n".format(self.epoch + 1, learning_rate))
+        log("Checkpoint Path: {}".format(self.checkpoint_path))
+
 
         for epoch in range(self.epoch + 1, epochs + 1):
             log("Epoch {}/{}.".format(epoch, epochs))
 
             # Training
             loss, loss_rpn_class, loss_rpn_bbox, loss_mrcnn_class, loss_mrcnn_bbox, loss_mrcnn_mask,\
-            loss_depth, loss_normal = self.train_epoch(
-                train_generator, optimizer, self.config.STEPS_PER_EPOCH, depth_weight)
+            loss_depth, loss_normal, loss_glob_depth = self.train_epoch2(
+                train_generator, optimizer, self.config.STEPS_PER_EPOCH, depth_weight, global_depth_weight)
 
             # Validation
             val_loss, val_loss_rpn_class, val_loss_rpn_bbox, val_loss_mrcnn_class, val_loss_mrcnn_bbox, \
-            val_loss_mrcnn_mask, val_loss_depth, val_loss_normal = self.valid_epoch(
-                val_generator, self.config.VALIDATION_STEPS, depth_weight)
+            val_loss_mrcnn_mask, val_loss_depth, val_loss_normal, val_loss_glob_depth = self.valid_epoch(
+                val_generator, self.config.VALIDATION_STEPS, depth_weight, global_depth_weight)
 
             # Statistics
             self.loss_history.append(
@@ -2232,8 +2278,9 @@ class MaskDepthRCNN(nn.Module):
             writer.add_scalar('Train/MRCNN_Class', loss_mrcnn_class, epoch)
             writer.add_scalar('Train/MRCNN_BBOX', loss_mrcnn_bbox, epoch)
             writer.add_scalar('Train/MRCNN_Mask', loss_mrcnn_mask, epoch)
-            writer.add_scalar('Train/Depth', loss_depth, epoch)
+            writer.add_scalar('Train/MRCNN_Depth', loss_depth, epoch)
             writer.add_scalar('Train/Normal', loss_normal, epoch)
+            writer.add_scalar('Train/Global_depth', loss_glob_depth, epoch)
 
             writer.add_scalar('Val/Loss', val_loss, epoch)
             writer.add_scalar('Val/RPN_Class', val_loss_rpn_class, epoch)
@@ -2241,13 +2288,21 @@ class MaskDepthRCNN(nn.Module):
             writer.add_scalar('Val/MRCNN_Class', val_loss_mrcnn_class, epoch)
             writer.add_scalar('Val/MRCNN_BBOX', val_loss_mrcnn_bbox, epoch)
             writer.add_scalar('Val/MRCNN_Mask', val_loss_mrcnn_mask, epoch)
-            writer.add_scalar('Val/Depth', val_loss_depth, epoch)
+            writer.add_scalar('Val/MRCNN_Depth', val_loss_depth, epoch)
             writer.add_scalar('Val/Normal', val_loss_normal, epoch)
+            writer.add_scalar('Val/Global_depth', val_loss_glob_depth, epoch)
 
             # Save model
-            if epoch % 5 == 0:
-                torch.save(self.state_dict(), self.checkpoint_path.format(epoch))
+            if epoch % 1 == 0:
+                torch.save({
+                    'epoch': epoch,
+                    'model_state_dict' : self.state_dict(),
+                    'optimizer_state_dict' : optimizer.state_dict(),
+                    'loss': loss
+                })
 
+
+        self.optimizer = optimizer
         self.epoch = epochs
 
     def train_model(self, train_dataset, val_dataset, learning_rate, epochs, layers, depth_weight=1):
@@ -2435,7 +2490,7 @@ class MaskDepthRCNN(nn.Module):
 
             # Progress
             if step % 200 == 0:
-                printProgressBar(step + 1, steps, prefix="\t{}/{}".format(step + 1, steps),
+               printProgressBar(step + 1, steps, prefix="\t{}/{}".format(step + 1, steps),
                                  suffix="Complete - loss: {:.5f} - rpn_class_loss: {:.5f} - rpn_bbox_loss: {:.5f} - mrcnn_class_loss: {:.5f} - mrcnn_bbox_loss: {:.5f} - mrcnn_mask_loss: {:.5f} - depth_loss: {:.5f} - normal_loss: {:.5f}".format(
                                      loss.data.cpu().item(), rpn_class_loss.data.cpu().item(),
                                      rpn_bbox_loss.data.cpu().item(),
@@ -2461,9 +2516,9 @@ class MaskDepthRCNN(nn.Module):
         return loss_sum, loss_rpn_class_sum, loss_rpn_bbox_sum, loss_mrcnn_class_sum, loss_mrcnn_bbox_sum, \
                loss_mrcnn_mask_sum, loss_depth_sum, loss_normal_sum
 
-    def valid_epoch(self, datagenerator, steps, depth_weight=1, normal_weight=0.001):
-
-        step = 0
+    ## This training method supports batch training and global depth prediction
+    def train_epoch2(self, datagenerator, optimizer, steps, depth_weight=1, normal_weight=0.001, global_depth_weight=1):
+        batch_count = 0
         loss_sum = 0
         loss_rpn_class_sum = 0
         loss_rpn_bbox_sum = 0
@@ -2472,18 +2527,48 @@ class MaskDepthRCNN(nn.Module):
         loss_mrcnn_mask_sum = 0
         loss_depth_sum = 0
         loss_normal_sum = 0
+        loss_global_depth_sum = 0
+        step = 0
 
-        with torch.no_grad():
-            for inputs in datagenerator:
-                images = inputs[0]
-                image_metas = inputs[1]
-                rpn_match = inputs[2]
-                rpn_bbox = inputs[3]
-                gt_class_ids = inputs[4]
-                gt_boxes = inputs[5]
-                gt_masks = inputs[6]
-                gt_depths = inputs[7]
-                gt_normals = inputs[8]
+        optimizer.zero_grad()
+
+        for inputs in datagenerator:
+
+            loss = 0
+
+           # print("data shape: ", len(inputs), " img shape: ", inputs[0].shape)
+           # print(" data   normals shape: ", inputs[8].shape)
+
+            for i in range(self.config.BATCH_SIZE):
+
+                #inputs = data[i]
+
+                batch_count += 1
+
+                images = inputs[0][i]
+                image_metas = inputs[1][i]
+                rpn_match = inputs[2][i]
+                rpn_bbox = inputs[3][i]
+                gt_class_ids = inputs[4][i]
+                gt_boxes = inputs[5][i]
+                gt_masks = inputs[6][i]
+                gt_depths = inputs[7][i]
+                gt_normals = inputs[8][i]
+                gt_depth = inputs[9][i]
+
+               # print(" images shape in current batch: ", images.shape)
+                images = images.unsqueeze(0)
+                image_metas = image_metas.unsqueeze(0)
+                rpn_match = rpn_match.unsqueeze(0)
+                rpn_bbox = rpn_bbox.unsqueeze(0)
+                gt_class_ids = gt_class_ids.unsqueeze(0)
+                gt_boxes = gt_boxes.unsqueeze(0)
+                gt_masks = gt_masks.unsqueeze(0)
+                gt_depths = gt_depths.unsqueeze(0)
+                gt_normals = gt_normals.unsqueeze(0)
+                gt_depth = gt_depth.unsqueeze(0)
+               # print(" images shape in current batch after unsqueeze: ", images.shape)
+               # print("normals shape: ", gt_normals.shape)
 
                 # image_metas as numpy array
                 image_metas = image_metas.numpy()
@@ -2497,6 +2582,7 @@ class MaskDepthRCNN(nn.Module):
                 gt_masks = Variable(gt_masks)
                 gt_depths = Variable(gt_depths)
                 gt_normals = Variable(gt_normals)
+                gt_depth = Variable(gt_depth)
 
                 # To GPU
                 if self.config.GPU_COUNT:
@@ -2508,36 +2594,148 @@ class MaskDepthRCNN(nn.Module):
                     gt_masks = gt_masks.cuda()
                     gt_depths = gt_depths.cuda()
                     gt_normals = gt_normals.cuda()
+                    gt_depth = gt_depth.cuda()
 
                 # Run object detection
-                rpn_class_logits, rpn_pred_bbox, target_class_ids, mrcnn_class_logits, target_deltas, mrcnn_bbox, target_mask, mrcnn_mask, rois, target_depths, mrcnn_depths, target_normals, mrcnn_normals = \
+                rpn_class_logits, rpn_pred_bbox, target_class_ids, mrcnn_class_logits, target_deltas, mrcnn_bbox, target_mask, mrcnn_mask, rois, target_depths, mrcnn_depths, target_normal, mrcnn_normal, global_depth = \
+                    self.predict([images, image_metas, gt_class_ids, gt_boxes, gt_masks, gt_depths, gt_normals],
+                                 mode='training')
+
+                # Compute losses
+                rpn_class_loss, rpn_bbox_loss, mrcnn_class_loss, mrcnn_bbox_loss, mrcnn_mask_loss, depth_loss, \
+                normal_loss, global_depth_loss = compute_losses_(
+                    self.config, rpn_match, rpn_bbox, rpn_class_logits, rpn_pred_bbox, target_class_ids, mrcnn_class_logits,
+                    target_deltas, mrcnn_bbox, target_mask, mrcnn_mask, target_depths, mrcnn_depths, target_normal,
+                    mrcnn_normal, gt_depth, global_depth)
+
+                if self.config.GPU_COUNT:
+                    depth_loss = depth_loss.cuda()
+                    normal_loss = normal_loss.cuda()
+
+                img_loss = rpn_class_loss + rpn_bbox_loss + mrcnn_class_loss + mrcnn_bbox_loss + mrcnn_mask_loss \
+                       + depth_weight * depth_loss + normal_weight * normal_loss + global_depth_weight*global_depth_loss
+                loss = loss + img_loss
+
+            # Backpropagation
+            loss = loss / self.config.BATCH_SIZE
+            loss.backward()
+            torch.nn.utils.clip_grad_norm_(self.parameters(), 5.0)
+            if (batch_count % self.config.BATCH_SIZE) == 0:
+                optimizer.step()
+                optimizer.zero_grad()
+                batch_count = 0
+
+            # Progress
+            if step % 200 == 0:
+               printProgressBar(step + 1, steps, prefix="\t{}/{}".format(step + 1, steps),
+                                 suffix="Complete - loss: {:.5f} - rpn_class_loss: {:.5f} - rpn_bbox_loss: {:.5f} - mrcnn_class_loss: {:.5f} - mrcnn_bbox_loss: {:.5f} - mrcnn_mask_loss: {:.5f} - depth_loss: {:.5f} - normal_loss: {:.5f} - global depth loss: {:.5f}".format(
+                                     loss.data.cpu().item(), rpn_class_loss.data.cpu().item(),
+                                     rpn_bbox_loss.data.cpu().item(),
+                                     mrcnn_class_loss.data.cpu().item(), mrcnn_bbox_loss.data.cpu().item(),
+                                     mrcnn_mask_loss.data.cpu().item(), depth_loss.data.cpu().item(),
+                                     normal_loss.data.cpu().item(), global_depth_loss), length=10)
+
+            # Statistics
+            loss_sum += loss.data.cpu().item() / steps
+            loss_rpn_class_sum += rpn_class_loss.data.cpu().item() / steps
+            loss_rpn_bbox_sum += rpn_bbox_loss.data.cpu().item() / steps
+            loss_mrcnn_class_sum += mrcnn_class_loss.data.cpu().item() / steps
+            loss_mrcnn_bbox_sum += mrcnn_bbox_loss.data.cpu().item() / steps
+            loss_mrcnn_mask_sum += mrcnn_mask_loss.data.cpu().item() / steps
+            loss_depth_sum += depth_loss.data.cpu().item() / steps
+            loss_normal_sum += normal_loss.data.cpu().item() / steps
+            loss_global_depth_sum += global_depth_loss.cpu().item() / steps
+
+            # Break after 'steps' steps
+            if step == steps - 1:
+                break
+            step += 1
+
+        return loss_sum, loss_rpn_class_sum, loss_rpn_bbox_sum, loss_mrcnn_class_sum, loss_mrcnn_bbox_sum, \
+               loss_mrcnn_mask_sum, loss_depth_sum, loss_normal_sum, loss_global_depth_sum
+
+    def valid_epoch(self, datagenerator, steps, depth_weight=1, normal_weight=0.001, global_depth_weight=1):
+
+        step = 0
+        loss_sum = 0
+        loss_rpn_class_sum = 0
+        loss_rpn_bbox_sum = 0
+        loss_mrcnn_class_sum = 0
+        loss_mrcnn_bbox_sum = 0
+        loss_mrcnn_mask_sum = 0
+        loss_depth_sum = 0
+        loss_normal_sum = 0
+        loss_global_depth_sum = 0
+
+        with torch.no_grad():
+            for inputs in datagenerator:
+                images = inputs[0]
+                image_metas = inputs[1]
+                rpn_match = inputs[2]
+                rpn_bbox = inputs[3]
+                gt_class_ids = inputs[4]
+                gt_boxes = inputs[5]
+                gt_masks = inputs[6]
+                gt_depths = inputs[7]
+                gt_normals = inputs[8]
+                gt_depth = inputs[9]
+
+                # image_metas as numpy array
+                image_metas = image_metas.numpy()
+
+                # Wrap in variables
+                images = Variable(images)
+                rpn_match = Variable(rpn_match)
+                rpn_bbox = Variable(rpn_bbox)
+                gt_class_ids = Variable(gt_class_ids)
+                gt_boxes = Variable(gt_boxes)
+                gt_masks = Variable(gt_masks)
+                gt_depths = Variable(gt_depths)
+                gt_normals = Variable(gt_normals)
+                gt_depth = Variable(gt_depth)
+
+                # To GPU
+                if self.config.GPU_COUNT:
+                    images = images.cuda()
+                    rpn_match = rpn_match.cuda()
+                    rpn_bbox = rpn_bbox.cuda()
+                    gt_class_ids = gt_class_ids.cuda()
+                    gt_boxes = gt_boxes.cuda()
+                    gt_masks = gt_masks.cuda()
+                    gt_depths = gt_depths.cuda()
+                    gt_normals = gt_normals.cuda()
+                    gt_depth = gt_depth.cuda()
+
+                # Run object detection
+                rpn_class_logits, rpn_pred_bbox, target_class_ids, mrcnn_class_logits, target_deltas, mrcnn_bbox, target_mask, mrcnn_mask, rois, target_depths, mrcnn_depths, target_normals, mrcnn_normals, global_depth = \
                     self.predict([images, image_metas, gt_class_ids, gt_boxes, gt_masks, gt_depths, gt_normals], mode='training')
 
                 if not target_class_ids.size():
                     continue
 
                 # Compute losses
-                rpn_class_loss, rpn_bbox_loss, mrcnn_class_loss, mrcnn_bbox_loss, mrcnn_mask_loss, depth_loss, normal_loss = compute_losses_(
+                rpn_class_loss, rpn_bbox_loss, mrcnn_class_loss, mrcnn_bbox_loss, mrcnn_mask_loss, depth_loss, \
+                normal_loss, global_depth_loss = compute_losses_(
                     self.config, rpn_match, rpn_bbox, rpn_class_logits, rpn_pred_bbox, target_class_ids,
-                    mrcnn_class_logits,
-                    target_deltas, mrcnn_bbox, target_mask, mrcnn_mask, target_depths, mrcnn_depths,
-                    target_normals, mrcnn_normals)
+                    mrcnn_class_logits, target_deltas, mrcnn_bbox, target_mask, mrcnn_mask, target_depths, mrcnn_depths,
+                    target_normals, mrcnn_normals, gt_depth, global_depth)
                 if self.config.GPU_COUNT:
                     depth_loss = depth_loss.cuda()
                     normal_loss = normal_loss.cuda()
+                    global_depth_loss = global_depth_loss.cuda()
 
                 loss = rpn_class_loss + rpn_bbox_loss + mrcnn_class_loss + mrcnn_bbox_loss + mrcnn_mask_loss \
-                       + depth_weight*depth_loss + normal_weight*normal_loss
+                       + depth_weight*depth_loss + normal_weight*normal_loss + global_depth_weight*global_depth_loss
 
                 # Progress
                 if step % 100 == 0:
-                    printProgressBar(step + 1, steps, prefix="\t{}/{}".format(step + 1, steps),
-                                     suffix="Complete - loss: {:.5f} - rpn_class_loss: {:.5f} - rpn_bbox_loss: {:.5f} - mrcnn_class_loss: {:.5f} - mrcnn_bbox_loss: {:.5f} - mrcnn_mask_loss: {:.5f} - depth_loss: {:.5f} - normal_loss: {:.5f}".format(
+                   printProgressBar(step + 1, steps, prefix="\t{}/{}".format(step + 1, steps),
+                                     suffix="Complete - loss: {:.5f} - rpn_class_loss: {:.5f} - rpn_bbox_loss: {:.5f} - mrcnn_class_loss: {:.5f} - mrcnn_bbox_loss: {:.5f} - mrcnn_mask_loss: {:.5f} - depth_loss: {:.5f} - normal_loss: {:.5f} - global depth loss: {:.5f}".format(
                                          loss.data.cpu().item(), rpn_class_loss.data.cpu().item(),
                                          rpn_bbox_loss.data.cpu().item(),
                                          mrcnn_class_loss.data.cpu().item(), mrcnn_bbox_loss.data.cpu().item(),
                                          mrcnn_mask_loss.data.cpu().item(), depth_loss.data.cpu().item(),
-                                         normal_loss.data.cpu().item()), length=10)
+                                         normal_loss.data.cpu().item(), global_depth_loss.data.cpu().item()), length=10)
 
                 # Statistics
                 loss_sum += loss.data.cpu().item() / steps
@@ -2548,6 +2746,7 @@ class MaskDepthRCNN(nn.Module):
                 loss_mrcnn_mask_sum += mrcnn_mask_loss.data.cpu().item() / steps
                 loss_depth_sum += depth_loss.data.cpu().item() / steps
                 loss_normal_sum += normal_loss.data.cpu().item() / steps
+                loss_global_depth_sum += global_depth_loss.data.cpu().item() / steps
 
                 # Break after 'steps' steps
                 if step == steps - 1:
@@ -2555,7 +2754,7 @@ class MaskDepthRCNN(nn.Module):
                 step += 1
 
         return loss_sum, loss_rpn_class_sum, loss_rpn_bbox_sum, loss_mrcnn_class_sum, loss_mrcnn_bbox_sum, \
-               loss_mrcnn_mask_sum, loss_depth_sum, loss_normal_sum
+               loss_mrcnn_mask_sum, loss_depth_sum, loss_normal_sum, loss_global_depth_sum
 
     def mold_inputs(self, config, images):
         """Takes a list of images and modifies them to the format expected
@@ -2648,9 +2847,9 @@ class MaskDepthRCNN(nn.Module):
         boxes = np.multiply(boxes - shifts, scales).astype(np.int32)
 
         if debug:
-            print(masks.shape, boxes.shape)
+           # print(masks.shape, boxes.shape)
             for maskIndex, mask in enumerate(masks):
-                print(maskIndex, boxes[maskIndex].astype(np.int32))
+               # print(maskIndex, boxes[maskIndex].astype(np.int32))
                 cv2.imwrite('test/local_mask_' + str(maskIndex) + '.png', (mask * 255).astype(np.uint8))
                 continue
 
@@ -2679,7 +2878,7 @@ class MaskDepthRCNN(nn.Module):
             if full_masks else np.empty((0,) + masks.shape[1:3])
 
         if debug:
-            print(full_masks.shape)
+           # print(full_masks.shape)
             for maskIndex in range(full_masks.shape[2]):
                 cv2.imwrite('test/full_mask_' + str(maskIndex) + '.png',
                             (full_masks[:, :, maskIndex] * 255).astype(np.uint8))

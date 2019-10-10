@@ -51,11 +51,14 @@ def train_roidepth(augmentation=None, depth_weight=1):
     config.VALIDATION_STEPS = 1000
 
     config.PREDICT_DEPTH = True
+    config.PREDICT_GLOBAL_DEPTH = True
+    config.GRAD_LOSS = False
     depth_weight = 1
     config.USE_MINI_MASK = True
     config.PREDICT_PLANE = False
     config.PREDICT_NORMAL = False
     config.DEPTH_LOSS = 'L1'  # Options: L1, L2, BERHU
+    config.BATCH_SIZE = 6
 
     model_maskdepth = MaskDepthRCNN(config)
     model_maskdepth.cuda()
@@ -65,16 +68,37 @@ def train_roidepth(augmentation=None, depth_weight=1):
     #model_maskdepth.load_weights(resnet_path)
     model_maskdepth.load_weights(coco_path, iscoco=False)
 
+
+    # Call checkpoint below in train_model call!
     #checkpoint_dir = 'checkpoints/suncg20190924T2014/mask_depth_rcnn_suncg_0020.pth'
     #model_maskdepth.load_state_dict(torch.load(checkpoint_dir))
 
+
     start = timer()
 
-    epochs = 20
+    epochs = 3
     layers = "heads"  # options: 3+, 4+, 5+, heads, all
     model_maskdepth.train_model2(dataset_train, dataset_val, learning_rate=config.LEARNING_RATE, epochs=epochs,
                                  layers=layers, depth_weight=depth_weight, augmentation=augmentation)
 
+    #model_maskdepth.train_model2(dataset_train, dataset_val, learning_rate=config.LEARNING_RATE, epochs=epochs,
+    #                             layers=layers, depth_weight=depth_weight, augmentation=augmentation
+    #                             checkpoint_dir_prev = checkpoint_dir)
+
+    epochs = 6
+    layers = "all"  # options: 3+, 4+, 5+, heads, all
+    model_maskdepth.train_model2(dataset_train, dataset_val, learning_rate=config.LEARNING_RATE, epochs=epochs,
+                                 layers=layers, depth_weight=depth_weight,
+                                 augmentation=augmentation, continue_train=True)
+
+    epochs = 9
+    layers = "5+"  # options: 3+, 4+, 5+, heads, all
+    model_maskdepth.train_model2(dataset_train, dataset_val, learning_rate=config.LEARNING_RATE, epochs=epochs,
+                                 layers=layers, depth_weight=depth_weight,
+                                 augmentation=augmentation, continue_train=True)
+
+
+    '''
 
     epochs = 40
     layers = "all"  # options: 3+, 4+, 5+, heads, all
@@ -88,6 +112,7 @@ def train_roidepth(augmentation=None, depth_weight=1):
     model_maskdepth.train_model2(dataset_train, dataset_val, learning_rate=config.LEARNING_RATE, epochs=epochs,
                                  layers=layers, depth_weight=depth_weight, augmentation=augmentation)
 
+    '''
 
     end = timer()
     print('Total training time: ', end - start)
@@ -207,9 +232,13 @@ if __name__ == '__main__':
     # warnings.filterwarnings("ignore")
     print("starting!")
 
+
+
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
 
         print("ROI training!")
         train_roidepth(augmentation)
+
+
 
