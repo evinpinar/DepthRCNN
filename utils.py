@@ -13,13 +13,15 @@ import numpy as np
 import torch
 import cv2
 import itertools
-import skimage.color
-import skimage.io
+from skimage.color import gray2rgb
+#import skimage.io
+from skimage import io
+from skimage import transform
 import scipy.misc
 import scipy.ndimage
 
 import warnings
-
+#io.use_plugin('matplotlib')
 
 ############################################################
 #  Bounding Boxes
@@ -420,10 +422,10 @@ class Dataset(object):
         """Load the specified image and return a [H,W,3] Numpy array.
 		"""
         # Load image
-        image = skimage.io.imread(self.image_info[image_id]['path'])
+        image = io.imread(self.image_info[image_id]['path'])
         # If grayscale. Convert to RGB for consistency.
         if image.ndim != 3:
-            image = skimage.color.gray2rgb(image)
+            image = gray2rgb(image)
         # If has an alpha channel, remove it for consistency
         if image.shape[-1] == 4:
             image = image[..., :3]
@@ -433,7 +435,7 @@ class Dataset(object):
         """Load the specified depth and return a [H,W] Numpy array.
 		"""
         # Load depth
-        depth = skimage.io.imread(self.image_info[image_id]['depth_path'])
+        depth = io.imread(self.image_info[image_id]['depth_path'])
         # depth = depth.astype('uint16')
         # imgdepth = depth.astype('single') / 1000
         # imgdepth = depth / 1000
@@ -517,7 +519,7 @@ def resize_image(image, min_dim=None, max_dim=None, min_scale=None, mode="square
 
     # Resize image using bilinear interpolation
     if scale != 1:
-        image = skimage.transform.resize(
+        image = transform.resize(
             image, (round(h * scale), round(w * scale)),
             order=1, mode="constant", preserve_range=True)
 
@@ -645,7 +647,7 @@ def minimize_mask(bbox, mask, mini_shape):
         if m.size == 0:
             raise Exception("Invalid bounding box with area of zero")
         # Resize with bilinear interpolation
-        m = skimage.transform.resize(m, mini_shape, order=1, mode="constant")
+        m = transform.resize(m, mini_shape, order=1, mode="constant")
         mini_mask[:, :, i] = np.around(m).astype(np.bool)
     return mini_mask
 
@@ -668,7 +670,7 @@ def minimize_mask_square(bbox, mask, mini_shape):
             m = np.pad(m, ((0, 0), (padding, padding)), mode='constant', constant_values=0)
         else:
             m = np.pad(m, ((-padding, -padding), (0, 0)), mode='constant', constant_values=0)
-        m = skimage.transform.resize(m, mini_shape, order=1, mode="constant")
+        m = transform.resize(m, mini_shape, order=1, mode="constant")
         mini_mask[:, :, i] = np.around(m).astype(np.bool)
     return mini_mask
 
@@ -685,7 +687,7 @@ def minimize_depth(bbox, depth, mini_shape):
         d = d[y1:y2, x1:x2]
         if d.size == 0:
             raise Exception("Invalid bounding box with area of zero")
-        d = skimage.transform.resize(d, mini_shape, order=1)
+        d = transform.resize(d, mini_shape, order=1)
         # d = cv2.resize(d, mini_shape, interpolation=cv2.INTER_NEAREST)
         # m = cv2.resize(depth[y1:y2, x1:x2], mini_shape, interpolation=cv2.INTER_NEAREST)
         mini_depth[:, :, i] = d
@@ -709,7 +711,7 @@ def minimize_depth_square(bbox, depth, mini_shape):
             d = np.pad(d, ((0, 0), (padding, padding)), mode='constant', constant_values=0)
         else:
             d = np.pad(d, ((-padding, -padding), (0, 0)), mode='constant', constant_values=0)
-        d = skimage.transform.resize(d, mini_shape, order=1)
+        d = transform.resize(d, mini_shape, order=1)
         # d = cv2.resize(d, mini_shape, interpolation=cv2.INTER_NEAREST)
         # m = cv2.resize(depth[y1:y2, x1:x2], mini_shape, interpolation=cv2.INTER_NEAREST)
         mini_depth[:, :, i] = d
@@ -734,7 +736,7 @@ def minimize_normal(bbox, normal, mini_shape):
         d = d[y1:y2, x1:x2]
         if d.size == 0:
             raise Exception("Invalid bounding box with area of zero")
-        d = skimage.transform.resize(d, mini_shape, order=1)
+        d = transform.resize(d, mini_shape, order=1)
         # d = cv2.resize(d, mini_shape, interpolation=cv2.INTER_NEAREST)
         # m = cv2.resize(depth[y1:y2, x1:x2], mini_shape, interpolation=cv2.INTER_NEAREST)
         mini_normal[:, :, :, i] = d
@@ -753,7 +755,7 @@ def expand_mask(bbox, mini_mask, image_shape):
         h = y2 - y1
         w = x2 - x1
         # Resize with bilinear interpolation
-        m = skimage.transform.resize(m, (h, w), order=1, mode="constant")
+        m = transform.resize(m, (h, w), order=1, mode="constant")
         mask[y1:y2, x1:x2, i] = np.around(m).astype(np.bool)
     return mask
 

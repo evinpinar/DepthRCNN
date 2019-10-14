@@ -33,26 +33,29 @@ from tensorboardX import SummaryWriter
 import imgaug.augmenters as iaa
 
 from evaluate_utils import *
+import logging
 
 
 def train_roidepth(augmentation=None, depth_weight=1):
     config = suncg.SuncgConfig()
 
     dataset_train = suncg.SuncgDataset()
-    dataset_train.load_sun("train")
+    # Debug mode:
+    # dataset_train.load_sun("val")
+    dataset_train.load_sun("val") #train
     dataset_train.prepare()
 
     dataset_val = suncg.SuncgDataset()
     dataset_val.load_sun("val")
     dataset_val.prepare()
 
-    config.STEPS_PER_EPOCH = 9000
+    config.STEPS_PER_EPOCH = 10 #9000
     config.TRAIN_ROIS_PER_IMAGE = 100
-    config.VALIDATION_STEPS = 1000
+    config.VALIDATION_STEPS = 0 #1000
 
     config.PREDICT_DEPTH = True
     config.PREDICT_GLOBAL_DEPTH = True
-    config.GRAD_LOSS = False
+    config.GRAD_LOSS = True
     depth_weight = 1
     config.USE_MINI_MASK = True
     config.PREDICT_PLANE = False
@@ -70,34 +73,36 @@ def train_roidepth(augmentation=None, depth_weight=1):
 
 
     # Call checkpoint below in train_model call!
-    #checkpoint_dir = 'checkpoints/suncg20190924T2014/mask_depth_rcnn_suncg_0020.pth'
+
     #model_maskdepth.load_state_dict(torch.load(checkpoint_dir))
 
+    #checkpoint_dir = 'checkpoints/suncg20191011T2022/mask_depth_rcnn_suncg_0002.pth'
 
     start = timer()
 
-    epochs = 3
+    epochs = 1
     layers = "heads"  # options: 3+, 4+, 5+, heads, all
     model_maskdepth.train_model2(dataset_train, dataset_val, learning_rate=config.LEARNING_RATE, epochs=epochs,
                                  layers=layers, depth_weight=depth_weight, augmentation=augmentation)
 
     #model_maskdepth.train_model2(dataset_train, dataset_val, learning_rate=config.LEARNING_RATE, epochs=epochs,
-    #                             layers=layers, depth_weight=depth_weight, augmentation=augmentation
-    #                             checkpoint_dir_prev = checkpoint_dir)
+    #                             layers=layers, depth_weight=depth_weight, augmentation=augmentation,
+    #                             checkpoint_dir_prev=checkpoint_dir)
 
-    epochs = 6
+    '''
+    epochs = 40
     layers = "all"  # options: 3+, 4+, 5+, heads, all
     model_maskdepth.train_model2(dataset_train, dataset_val, learning_rate=config.LEARNING_RATE, epochs=epochs,
                                  layers=layers, depth_weight=depth_weight,
                                  augmentation=augmentation, continue_train=True)
 
-    epochs = 9
+    epochs = 60
     layers = "5+"  # options: 3+, 4+, 5+, heads, all
     model_maskdepth.train_model2(dataset_train, dataset_val, learning_rate=config.LEARNING_RATE, epochs=epochs,
                                  layers=layers, depth_weight=depth_weight,
                                  augmentation=augmentation, continue_train=True)
 
-
+    '''
     '''
 
     epochs = 40
@@ -115,7 +120,11 @@ def train_roidepth(augmentation=None, depth_weight=1):
     '''
 
     end = timer()
-    print('Total training time: ', end - start)
+    print('Total training time: ', (end - start)/60)
+
+
+def train_globaldepthonly():
+    return
 
 
 ### TODO: Change this code for suncg
@@ -232,12 +241,11 @@ if __name__ == '__main__':
     # warnings.filterwarnings("ignore")
     print("starting!")
 
-
-
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
 
         print("ROI training!")
+        log("hello")
         train_roidepth(augmentation)
 
 
