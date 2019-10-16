@@ -49,7 +49,7 @@ def train_roidepth(augmentation=None, depth_weight=1):
     dataset_val.load_sun("val")
     dataset_val.prepare()
 
-    config.STEPS_PER_EPOCH = 10 #9000
+    config.STEPS_PER_EPOCH = 5 #9000
     config.TRAIN_ROIS_PER_IMAGE = 100
     config.VALIDATION_STEPS = 0 #1000
 
@@ -61,7 +61,7 @@ def train_roidepth(augmentation=None, depth_weight=1):
     config.PREDICT_PLANE = False
     config.PREDICT_NORMAL = False
     config.DEPTH_LOSS = 'L1'  # Options: L1, L2, BERHU
-    config.BATCH_SIZE = 6
+    config.BATCH_SIZE = 4
 
     model_maskdepth = MaskDepthRCNN(config)
     model_maskdepth.cuda()

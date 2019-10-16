@@ -331,7 +331,7 @@ class ResNet(nn.Module):
 #  Proposal Layer
 ############################################################
 
-def apply_box_deltas(boxes, deltas):
+def original_apply_box_deltas(boxes, deltas):
     """Applies the given deltas to the given boxes.
 	boxes: [N, 4] where each row is y1, x1, y2, x2
 	deltas: [N, 4] where each row is [dy, dx, log(dh), log(dw)]
@@ -354,7 +354,7 @@ def apply_box_deltas(boxes, deltas):
     result = torch.stack([y1, x1, y2, x2], dim=1)
     return result
 
-def modified_apply_box_deltas(boxes, deltas):
+def apply_box_deltas(boxes, deltas):
     """Applies the given deltas to the given boxes.
     :param boxes: [..., 4] where last dimension is y1, x1, y2, x2
     :param deltas: [..., 4] where last dimension is [dy, dx, log(dh), log(dw)]
@@ -365,6 +365,7 @@ def modified_apply_box_deltas(boxes, deltas):
     width = boxes[..., 3] - boxes[..., 1]
     center_y = boxes[..., 0] + 0.5 * height
     center_x = boxes[..., 1] + 0.5 * width
+    #print("height, weight, center: ", height, width, center_y, center_x)
     # print("Applying box deltas: ", "h, w: ", height.shape, width.shape, "boxes", boxes.shape, "deltas:", deltas.shape)
     # Apply deltas
     center_y += deltas[..., 0] * height
@@ -380,7 +381,7 @@ def modified_apply_box_deltas(boxes, deltas):
     return result
 
 
-def clip_boxes(boxes, window):
+def orig_clip_boxes(boxes, window):
     """
 	boxes: [N, 4] each col is y1, x1, y2, x2
 	window: [4] in the form y1, x1, y2, x2
@@ -392,7 +393,7 @@ def clip_boxes(boxes, window):
          boxes[:, 3].clamp(float(window[1]), float(window[3]))], 1)
     return boxes
 
-def modif_clip_boxes(boxes, window):
+def clip_boxes(boxes, window):
     """
     Clip boxes to lie within window
     :param boxes: [N, 4] each col is y1, x1, y2, x2
@@ -407,7 +408,7 @@ def modif_clip_boxes(boxes, window):
     return boxes
 
 
-def proposal_layer(inputs, proposal_count, nms_threshold, anchors, config=None):
+def orig_proposal_layer(inputs, proposal_count, nms_threshold, anchors, config=None):
     """Receives anchor scores and selects a subset to pass as proposals
 	to the second stage. Filtering is done based on anchor scores and
 	non-max suppression to remove overlaps. It also applies bounding
@@ -481,7 +482,8 @@ def proposal_layer(inputs, proposal_count, nms_threshold, anchors, config=None):
 
     return normalized_boxes
 
-def modified_proposal_layer(inputs, proposal_count, nms_threshold, anchors, config=None):
+# batch proposal
+def proposal_layer(inputs, proposal_count, nms_threshold, anchors, config=None):
     """Receives anchor scores and selects a subset to pass as proposals
 	to the second stage. Filtering is done based on anchor scores and
 	non-max suppression to remove overlaps. It also applies bounding
@@ -495,37 +497,34 @@ def modified_proposal_layer(inputs, proposal_count, nms_threshold, anchors, conf
 		Proposals in normalized coordinates [batch, rois, (y1, x1, y2, x2)]
 	"""
 
-    ## Currently only supports batchsize 1
-
-    # print("===> Proposal layer! ")
-    # print("inputs before squeeze: ", inputs[0].shape, inputs[1].shape)
-
-    inputs[0] = inputs[0].squeeze(0)
-    inputs[1] = inputs[1].squeeze(0)
-
-    #print("inputs after squeeze: ", inputs[0].shape, inputs[1].shape)
-
-    ## Box Scores. Use the foreground class confidence. [Batch, num_rois, 1]
-    scores = inputs[0][:, 1]
+    scores = inputs[0][:,:,1]
 
     ## Box deltas [batch, num_rois, 4]
     deltas = inputs[1]
+    n_samples = deltas.shape[0]
 
-    std_dev = Variable(torch.from_numpy(np.reshape(config.RPN_BBOX_STD_DEV, [1, 4])).float(), requires_grad=False)
+    print("scores: ", scores.shape, " deltas: ", deltas.shape)
+
+    std_dev = torch.tensor(np.reshape(config.RPN_BBOX_STD_DEV, [1, 1, 4]), requires_grad=False, dtype=torch.float)
     if config.GPU_COUNT:
         std_dev = std_dev.cuda()
 
-    # print("scores: ", scores.shape, " deltas: ", deltas.shape, " std dev: ", std_dev.shape)
+
     deltas = deltas * std_dev
     ## Improve performance by trimming to top anchors by score
     ## and doing the rest on the smaller subset.
     # print(" anchors size: ", anchors.size())
     pre_nms_limit = min(6000, anchors.size()[0])
-    scores, order = scores.sort(descending=True)
+    scores, order = scores.sort(dim=1, descending=True)
     order = order[:, :pre_nms_limit]
     scores = scores[:, :pre_nms_limit]
-    deltas = deltas[order.data, :]
-    anchors = anchors[order.data, :]
+    #deltas = deltas[order.data, :]
+    print("deltas: ", deltas.shape, "order: ", order.shape, "n_samples: ", n_samples)
+    print("order type: ", order.dtype)
+    deltas = deltas[torch.arange(n_samples, dtype=torch.long)[:, None], order, :]
+    anchors = anchors[order, :]
+
+    print("scores: ", scores.shape, " deltas: ", deltas.shape, " std dev: ", std_dev.shape)
 
     ## Apply deltas to anchors to get refined anchors.
     ## [batch, N, (y1, x1, y2, x2)]
@@ -542,21 +541,33 @@ def modified_proposal_layer(inputs, proposal_count, nms_threshold, anchors, conf
     ## for small objects, so we're skipping it.
 
     ## Non-max suppression
-    keep = nms(torch.cat((boxes, scores.unsqueeze(1)), 1).data, nms_threshold)
+    retained = []
+    rois_per_sample = []
+    max_n_rois = 0
+    for sample_i in range(n_samples):
+        keep = nms(torch.cat((boxes[sample_i], scores[sample_i].unsqueeze(1)), 1).detach(), nms_threshold)
+        keep = keep[:proposal_count]
+        n_rois = keep.shape[0]
+        max_n_rois = max(max_n_rois, n_rois)
+        retained.append(keep)
+        rois_per_sample.append(n_rois)
 
-    keep = keep[:proposal_count]
-    boxes = boxes[keep, :]
-
-    ## Normalize dimensions to range of 0 to 1.
-    norm = Variable(torch.from_numpy(np.array([height, width, height, width])).float(), requires_grad=False)
+    # Normalize dimensions to range of 0 to 1.
+    norm = torch.tensor(np.array([height, width, height, width]), dtype=torch.float)
+    retained_norm_boxes = torch.zeros(n_samples, max_n_rois, 4, dtype=torch.float)
+    retained_scores = torch.zeros(n_samples, max_n_rois, dtype=torch.float)
     if config.GPU_COUNT:
         norm = norm.cuda()
-    normalized_boxes = boxes / norm
+        retained_norm_boxes = retained_norm_boxes.cuda()
+        retained_scores = retained_scores.cuda()
 
-    ## Add back batch dimension
-    normalized_boxes = normalized_boxes.unsqueeze(0)
+    for sample_i, (n_rois, keep) in enumerate(zip(rois_per_sample, retained)):
+        retained_norm_boxes[sample_i, :n_rois, :] = boxes[sample_i, keep, :] / norm
+        retained_scores[sample_i, :n_rois] = scores[sample_i, keep]
 
-    return normalized_boxes
+    print("retained boxes: ", retained_norm_boxes.shape)
+
+    return retained_norm_boxes
 
 
 ############################################################

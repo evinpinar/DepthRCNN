@@ -885,6 +885,7 @@ def data_generator2(dataset, config, shuffle=True, augment=False, augmentation=N
 
             # print(gt_masks.shape)
             # print(gt_depth.shape)
+
             gt_depths = compute_gt_depths(gt_depth, gt_masks) # Mask the depths
             if config.PREDICT_NORMAL:
                 gt_normals = compute_gt_normals(gt_normal, gt_masks) # Mask the normals
@@ -1100,6 +1101,8 @@ def data_generator3(dataset, config, shuffle=True, augment=False, augmentation=N
             if b == 0:
                 batch_image_meta = np.zeros(
                     (batch_size,) + image_meta.shape, dtype=image_meta.dtype)
+                batch_depth = np.zeros(
+                    (batch_size,) + gt_depth.shape, dtype=np.float32)
                 batch_rpn_match = np.zeros(
                     [batch_size, anchors.shape[0], 1], dtype=rpn_match.dtype)
                 batch_rpn_bbox = np.zeros(
@@ -1134,6 +1137,7 @@ def data_generator3(dataset, config, shuffle=True, augment=False, augmentation=N
 
             # Add to batch
             batch_image_meta[b] = image_meta
+            batch_depth[b] = gt_depth.astype(np.float32)
             batch_rpn_match[b] = rpn_match[:, np.newaxis]
             batch_rpn_bbox[b] = rpn_bbox
             batch_images[b] = mold_image(image.astype(np.float32), config)
@@ -1156,7 +1160,8 @@ def data_generator3(dataset, config, shuffle=True, augment=False, augmentation=N
                        torch.from_numpy(batch_gt_boxes.astype(np.float32)),
                        torch.from_numpy(batch_gt_masks.astype(np.float32).transpose(0, 3, 1, 2)),
                        torch.from_numpy(batch_gt_depths.astype(np.float32).transpose(0, 3, 1, 2)),
-                       torch.from_numpy(batch_gt_normals.astype(np.float32).transpose(0, 4, 3, 1, 2))]
+                       torch.from_numpy(batch_gt_normals.astype(np.float32).transpose(0, 4, 3, 1, 2)),
+                       torch.from_numpy(batch_depth.astype(np.float32))]
                        #torch.from_numpy(batch_depth.astype(np.float32))]
 
                 #inputs = [batch_images, batch_image_meta, batch_rpn_match, batch_rpn_bbox,
@@ -2084,7 +2089,7 @@ class MaskDepthRCNN(nn.Module):
         rpn_feature_maps = [p2_out, p3_out, p4_out, p5_out, p6_out]
         mrcnn_feature_maps = [p2_out, p3_out, p4_out, p5_out]
 
-      #  print("feature maps shapes: ", p2_out.shape, p3_out.shape, p4_out.shape, p5_out.shape, p6_out.shape)
+        #print("feature maps shapes: ", p2_out.shape, p3_out.shape, p4_out.shape, p5_out.shape, p6_out.shape)
 
         feature_maps = [feature_map for index, feature_map in enumerate(rpn_feature_maps[::-1])]
 
@@ -2107,15 +2112,14 @@ class MaskDepthRCNN(nn.Module):
         outputs = [torch.cat(list(o), dim=1) for o in outputs]
         rpn_class_logits, rpn_class, rpn_bbox = outputs
 
-      #  print("rpn box: ", rpn_bbox.shape, " logits: ", rpn_class_logits.shape, "class: ", rpn_class.shape)
-      #  print(" rpn box example: ", rpn_bbox[0,0], " class: ", rpn_class[0, 0])
-      #  print(" rpn box example2: ", rpn_bbox[0, 1000], " class: ", rpn_class[0, 1000])
+        #print("rpn box: ", rpn_bbox.shape, " logits: ", rpn_class_logits.shape, "class: ", rpn_class.shape)
 
         ## Generate proposals
         ## Proposals are [batch, N, (y1, x1, y2, x2)] in normalized coordinates
         ## and zero padded.
         proposal_count = self.config.POST_NMS_ROIS_TRAINING if 'training' in mode and use_refinement == False \
             else self.config.POST_NMS_ROIS_INFERENCE
+        #print("proposal count: ", proposal_count)
         rpn_rois = proposal_layer([rpn_class, rpn_bbox],
                                   proposal_count=proposal_count,
                                   nms_threshold=self.config.RPN_NMS_THRESHOLD,
@@ -2282,6 +2286,12 @@ class MaskDepthRCNN(nn.Module):
 
         feature_maps = [feature_map for index, feature_map in enumerate(rpn_feature_maps[::-1])]
 
+        if self.config.PREDICT_GLOBAL_DEPTH:
+            global_depth = self.depth(feature_maps)
+            global_depth = global_depth.squeeze(1)
+        else:
+            global_depth = torch.ones((1, self.config.IMAGE_MAX_DIM, self.config.IMAGE_MAX_DIM)).cuda()
+
         ## Loop through pyramid layers
         layer_outputs = []  ## list of lists
         for p in rpn_feature_maps:
@@ -2355,7 +2365,7 @@ class MaskDepthRCNN(nn.Module):
             mrcnn_mask = mrcnn_mask.unsqueeze(0)
             mrcnn_depth = mrcnn_depth.unsqueeze(0)
             mrcnn_normal = mrcnn_normal.unsqueeze(0)
-            return [detections, mrcnn_mask, mrcnn_depth, mrcnn_normal]
+            return [detections, mrcnn_mask, mrcnn_depth, mrcnn_normal, global_depth]
 
         elif mode == 'training':
 
@@ -2427,7 +2437,7 @@ class MaskDepthRCNN(nn.Module):
                     mrcnn_normal = Variable(torch.FloatTensor()).cuda()
 
             return [rpn_class_logits, rpn_bbox, target_class_ids, mrcnn_class_logits, target_deltas, mrcnn_bbox,
-                    target_mask, mrcnn_mask, rois, target_depth, mrcnn_depth, target_normals, mrcnn_normal]
+                    target_mask, mrcnn_mask, rois, target_depth, mrcnn_depth, target_normals, mrcnn_normal, global_depth]
 
     def train_model2(self, train_dataset, val_dataset, learning_rate, epochs, layers,
                      depth_weight=1, augmentation=None, checkpoint_dir_prev=None, continue_train=False,
@@ -2808,7 +2818,7 @@ class MaskDepthRCNN(nn.Module):
         return loss_sum, loss_rpn_class_sum, loss_rpn_bbox_sum, loss_mrcnn_class_sum, loss_mrcnn_bbox_sum, \
                loss_mrcnn_mask_sum, loss_depth_sum, loss_normal_sum
 
-    ## This training method supports batch training and global depth prediction
+    ## This training method supports global depth prediction
     def train_epoch2(self, datagenerator, optimizer, steps, depth_weight=1, normal_weight=0.001, global_depth_weight=1):
         batch_count = 0
         loss_sum = 0
@@ -2826,110 +2836,74 @@ class MaskDepthRCNN(nn.Module):
 
         for inputs in datagenerator:
 
-            loss = 0
+            print(len(inputs[0]))
 
-            #print("data shape: ", len(inputs), " img shape: ", inputs[0].shape)
-            #print("depth shape: ", inputs[9].shape)
-            #print(" masks shape: ", inputs[6].shape)
-            # print(" data   normals shape: ", inputs[8].shape)
+            images = inputs[0]
+            image_metas = inputs[1]
+            rpn_match = inputs[2]
+            rpn_bbox = inputs[3]
+            gt_class_ids = inputs[4]
+            gt_boxes = inputs[5]
+            gt_masks = inputs[6]
+            gt_depths = inputs[7]
+            gt_normals = inputs[8]
+            gt_depth = inputs[9]
 
-            print("new batch! ")
-            image_batch, image_metas_batch, rpn_match_batch, rpn_bbox_batch, gt_class_ids_batch, gt_boxes_batch, gt_masks_batch, gt_depths_batch, gt_normals_batch, gt_depth_batch = inputs
+            # image_metas as numpy array
+            #image_metas = image_metas.numpy()
 
-            for i in range(self.config.BATCH_SIZE):
+            # Wrap in variables
 
-                #print("Training: step: ", step, " i: ", i)
-                #inputs = data[i]
+            images = Variable(images)
+            rpn_match = Variable(rpn_match)
+            rpn_bbox = Variable(rpn_bbox)
+            gt_class_ids = Variable(gt_class_ids)
+            gt_boxes = Variable(gt_boxes)
+            gt_masks = Variable(gt_masks)
+            gt_depths = Variable(gt_depths)
+            gt_normals = Variable(gt_normals)
+            gt_depth = Variable(gt_depth)
 
-                batch_count += 1
-
-                print("start: ", batch_count)
-
-                '''
-                images = image_batch[i]
-                image_metas = image_metas_batch[i]
-                rpn_match = rpn_match_batch[i]
-                rpn_bbox = rpn_bbox_batch[i]
-                gt_class_ids = gt_class_ids_batch[i]
-                gt_boxes = gt_boxes_batch[i]
-                gt_masks = gt_masks_batch[i]
-                gt_depths = gt_depths_batch[i]
-                gt_normals = gt_normals_batch[i]
-                gt_depth = gt_depth_batch[i]
-
-               # print(" images shape in current batch: ", images.shape)
-                images = images.unsqueeze(0)
-                image_metas = image_metas.unsqueeze(0)
-                rpn_match = rpn_match.unsqueeze(0)
-                rpn_bbox = rpn_bbox.unsqueeze(0)
-                gt_class_ids = gt_class_ids.unsqueeze(0)
-                gt_boxes = gt_boxes.unsqueeze(0)
-                gt_masks = gt_masks.unsqueeze(0)
-                gt_depths = gt_depths.unsqueeze(0)
-                gt_normals = gt_normals.unsqueeze(0)
-                gt_depth = gt_depth.unsqueeze(0)
-               # print(" images shape in current batch after unsqueeze: ", images.shape)
-               # print("normals shape: ", gt_normals.shape)
-
-                # image_metas as numpy array
-                image_metas = image_metas.numpy()
-
-                # Wrap in variables
-                
-                images = Variable(images)
-                rpn_match = Variable(rpn_match)
-                rpn_bbox = Variable(rpn_bbox)
-                gt_class_ids = Variable(gt_class_ids)
-                gt_boxes = Variable(gt_boxes)
-                gt_masks = Variable(gt_masks)
-                gt_depths = Variable(gt_depths)
-                gt_normals = Variable(gt_normals)
-                gt_depth = Variable(gt_depth)
-                
-
-                # To GPU
-                if self.config.GPU_COUNT:
-                    images = images.cuda()
-                    rpn_match = rpn_match.cuda()
-                    rpn_bbox = rpn_bbox.cuda()
-                    gt_class_ids = gt_class_ids.cuda()
-                    gt_boxes = gt_boxes.cuda()
-                    gt_masks = gt_masks.cuda()
-                    gt_depths = gt_depths.cuda()
-                    gt_normals = gt_normals.cuda()
-                    gt_depth = gt_depth.cuda()
+            # To GPU
+            if self.config.GPU_COUNT:
+                images = images.cuda()
+                rpn_match = rpn_match.cuda()
+                rpn_bbox = rpn_bbox.cuda()
+                gt_class_ids = gt_class_ids.cuda()
+                gt_boxes = gt_boxes.cuda()
+                gt_masks = gt_masks.cuda()
+                gt_depths = gt_depths.cuda()
+                gt_normals = gt_normals.cuda()
+                gt_depth = gt_depth.cuda()
 
 
-                print("heyyo! ")
+            print("heyyo! ")
 
-                
-                print("predict: ", batch_count)
-                # Run object detection
-                #print("     predicting... ")
-                rpn_class_logits, rpn_pred_bbox, target_class_ids, mrcnn_class_logits, target_deltas, mrcnn_bbox, target_mask, mrcnn_mask, rois, target_depths, mrcnn_depths, target_normal, mrcnn_normal, global_depth = \
-                    self.predict([images, image_metas, gt_class_ids, gt_boxes, gt_masks, gt_depths, gt_normals],
-                                 mode='training')
 
-                # Compute losses
-                print("compute loss: ", batch_count)
-                rpn_class_loss, rpn_bbox_loss, mrcnn_class_loss, mrcnn_bbox_loss, mrcnn_mask_loss, depth_loss, \
-                normal_loss, global_depth_loss = compute_losses_(
-                    self.config, rpn_match, rpn_bbox, rpn_class_logits, rpn_pred_bbox, target_class_ids, mrcnn_class_logits,
-                    target_deltas, mrcnn_bbox, target_mask, mrcnn_mask, target_depths, mrcnn_depths, target_normal,
-                    mrcnn_normal, gt_depth, global_depth)
+            print("predict: ", batch_count)
+            # Run object detection
+            #print("     predicting... ")
+            rpn_class_logits, rpn_pred_bbox, target_class_ids, mrcnn_class_logits, target_deltas, mrcnn_bbox, target_mask, mrcnn_mask, rois, target_depths, mrcnn_depths, target_normal, mrcnn_normal, global_depth = \
+                self.predict([images, image_metas, gt_class_ids, gt_boxes, gt_masks, gt_depths, gt_normals],
+                             mode='training')
 
-                if self.config.GPU_COUNT:
-                    depth_loss = depth_loss.cuda()
-                    normal_loss = normal_loss.cuda()
+            # Compute losses
+            print("compute loss: ", batch_count)
+            rpn_class_loss, rpn_bbox_loss, mrcnn_class_loss, mrcnn_bbox_loss, mrcnn_mask_loss, depth_loss, \
+            normal_loss, global_depth_loss = compute_losses_(
+                self.config, rpn_match, rpn_bbox, rpn_class_logits, rpn_pred_bbox, target_class_ids, mrcnn_class_logits,
+                target_deltas, mrcnn_bbox, target_mask, mrcnn_mask, target_depths, mrcnn_depths, target_normal,
+                mrcnn_normal, gt_depth, global_depth)
 
-                img_loss = rpn_class_loss + rpn_bbox_loss + mrcnn_class_loss + mrcnn_bbox_loss + mrcnn_mask_loss \
-                       + depth_weight * depth_loss + normal_weight * normal_loss + global_depth_weight*global_depth_loss
-                print(" img loss: ", img_loss)
-                loss = loss + img_loss
+            if self.config.GPU_COUNT:
+                depth_loss = depth_loss.cuda()
+                normal_loss = normal_loss.cuda()
+
+            loss = rpn_class_loss + rpn_bbox_loss + mrcnn_class_loss + mrcnn_bbox_loss + mrcnn_mask_loss \
+                   + depth_weight * depth_loss + normal_weight * normal_loss + global_depth_weight*global_depth_loss
 
             # Backpropagation
-            print("backprop: ", batch_count)
-            loss = loss / self.config.BATCH_SIZE
+            print("backprop:")
             loss.backward()
             torch.nn.utils.clip_grad_norm_(self.parameters(), 5.0)
             if (batch_count % self.config.BATCH_SIZE) == 0:
@@ -2961,12 +2935,6 @@ class MaskDepthRCNN(nn.Module):
 
             print("Loss sum: ", loss_sum)
 
-            '''
-
-            if (batch_count % self.config.BATCH_SIZE) == 0:
-                optimizer.step()
-                optimizer.zero_grad()
-                batch_count = 0
             # Break after 'steps' steps
             if step == steps - 1:
                 break
