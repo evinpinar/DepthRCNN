@@ -349,9 +349,7 @@ def imgrad(img):
     return grad_y, grad_x
 
 def imgrad_yx(img):
-    #N,_,_ = img.size()
-    N=1
-    C = 1
+    N,C,_,_ = img.size()
     grad_y, grad_x = imgrad(img)
     return torch.cat((grad_y.view(N,C,-1), grad_x.view(N,C,-1)), dim=1)
 

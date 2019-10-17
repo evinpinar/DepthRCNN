@@ -49,7 +49,7 @@ def train_roidepth(augmentation=None, depth_weight=1):
     dataset_val.load_sun("val")
     dataset_val.prepare()
 
-    config.STEPS_PER_EPOCH = 5 #9000
+    config.STEPS_PER_EPOCH = 900 #9000
     config.TRAIN_ROIS_PER_IMAGE = 100
     config.VALIDATION_STEPS = 0 #1000
 
@@ -80,7 +80,7 @@ def train_roidepth(augmentation=None, depth_weight=1):
 
     start = timer()
 
-    epochs = 1
+    epochs = 5
     layers = "heads"  # options: 3+, 4+, 5+, heads, all
     model_maskdepth.train_model2(dataset_train, dataset_val, learning_rate=config.LEARNING_RATE, epochs=epochs,
                                  layers=layers, depth_weight=depth_weight, augmentation=augmentation)

@@ -39,14 +39,13 @@ def log(text, array=None):
     """Prints a text message. And, optionally, if a Numpy array is provided it
 	prints it's shape, min, and max values.
 	"""
-    #print("hey", array)
     if array is not None:
         text = text.ljust(25)
         text += ("shape: {:20}  min: {:10.5f}  max: {:10.5f}".format(
             str(array.shape),
             array.min() if array.size else "",
             array.max() if array.size else ""))
-    print(text)
+        print(text)
 
 
 def printProgressBar(iteration, total, prefix='', suffix='', decimals=1, length=100, fill='█'):
@@ -408,7 +407,7 @@ def clip_boxes(boxes, window):
     return boxes
 
 
-def orig_proposal_layer(inputs, proposal_count, nms_threshold, anchors, config=None):
+def proposal_layer(inputs, proposal_count, nms_threshold, anchors, config=None):
     """Receives anchor scores and selects a subset to pass as proposals
 	to the second stage. Filtering is done based on anchor scores and
 	non-max suppression to remove overlaps. It also applies bounding
@@ -483,7 +482,7 @@ def orig_proposal_layer(inputs, proposal_count, nms_threshold, anchors, config=N
     return normalized_boxes
 
 # batch proposal
-def proposal_layer(inputs, proposal_count, nms_threshold, anchors, config=None):
+def proposal_layer_batch(inputs, proposal_count, nms_threshold, anchors, config=None):
     """Receives anchor scores and selects a subset to pass as proposals
 	to the second stage. Filtering is done based on anchor scores and
 	non-max suppression to remove overlaps. It also applies bounding
@@ -503,7 +502,7 @@ def proposal_layer(inputs, proposal_count, nms_threshold, anchors, config=None):
     deltas = inputs[1]
     n_samples = deltas.shape[0]
 
-    print("scores: ", scores.shape, " deltas: ", deltas.shape)
+    # print("scores: ", scores.shape, " deltas: ", deltas.shape)
 
     std_dev = torch.tensor(np.reshape(config.RPN_BBOX_STD_DEV, [1, 1, 4]), requires_grad=False, dtype=torch.float)
     if config.GPU_COUNT:
@@ -519,12 +518,12 @@ def proposal_layer(inputs, proposal_count, nms_threshold, anchors, config=None):
     order = order[:, :pre_nms_limit]
     scores = scores[:, :pre_nms_limit]
     #deltas = deltas[order.data, :]
-    print("deltas: ", deltas.shape, "order: ", order.shape, "n_samples: ", n_samples)
-    print("order type: ", order.dtype)
+    # print("deltas: ", deltas.shape, "order: ", order.shape, "n_samples: ", n_samples)
+    # print("order type: ", order.dtype)
     deltas = deltas[torch.arange(n_samples, dtype=torch.long)[:, None], order, :]
     anchors = anchors[order, :]
 
-    print("scores: ", scores.shape, " deltas: ", deltas.shape, " std dev: ", std_dev.shape)
+    # print("scores: ", scores.shape, " deltas: ", deltas.shape, " std dev: ", std_dev.shape)
 
     ## Apply deltas to anchors to get refined anchors.
     ## [batch, N, (y1, x1, y2, x2)]
@@ -565,16 +564,15 @@ def proposal_layer(inputs, proposal_count, nms_threshold, anchors, config=None):
         retained_norm_boxes[sample_i, :n_rois, :] = boxes[sample_i, keep, :] / norm
         retained_scores[sample_i, :n_rois] = scores[sample_i, keep]
 
-    print("retained boxes: ", retained_norm_boxes.shape)
+    # print("retained boxes: ", retained_norm_boxes.shape)
 
-    return retained_norm_boxes
-
+    return retained_norm_boxes, retained_scores, rois_per_sample
 
 ############################################################
 #  ROIAlign Layer
 ############################################################
 
-def pyramid_roi_align(inputs, pool_size, image_shape):
+def orig_pyramid_roi_align(inputs, pool_size, image_shape):
     """Implements ROI Pooling on multiple levels of the feature pyramid.
 
 	Params:
@@ -658,6 +656,263 @@ def pyramid_roi_align(inputs, pool_size, image_shape):
         feature_maps[i] = feature_maps[i].unsqueeze(0)  # CropAndResizeFunction needs batch dimension
         pooled_features = CropAndResizeFunction(pool_size, pool_size, 0)(feature_maps[i], level_boxes, ind)
         # print(" cropped feature: ", pooled_features.shape)
+        pooled.append(pooled_features)
+
+    # print(" pooled: ", pooled[0].shape, pooled[1].shape, pooled[2].shape)
+    ## Pack pooled features into one tensor
+    pooled = torch.cat(pooled, dim=0)
+    ## Pack box_to_level mapping into one array and add another
+    ## column representing the order of pooled boxes
+    box_to_level = torch.cat(box_to_level, dim=0)
+
+    ## Rearrange pooled features to match the order of the original boxes
+    _, box_to_level = torch.sort(box_to_level)
+    pooled = pooled[box_to_level, :, :]
+
+    return pooled
+
+def flatten_detections_with_sample_indices(n_dets_per_sample, *dets):
+    """
+    Flatten detection tensors from shape [batch, detections, ...] with zero padding
+    in the detections axis for unused detections. The number of used detections in
+    each sample is specified in n_dets_per_sample.
+    :param n_dets_per_sample: Number of detections in each sample in the batch
+    :param dets: tensors of detections, where each tensor is of shape [batch, detection, ...]
+    :return: (flat_dets0, flat_dets1, ...flat_detsN, sample_indices) where
+        flat_dets0..flat_detsN are tensors of shape [batch/detection, ...]
+        sample_indices gives the index of the sample to which each detection in the preceeding
+        arrays came from
+    """
+    sample_indices = []
+    for sample_i, n_dets in enumerate(n_dets_per_sample):
+        assign = torch.ones(n_dets).int() * sample_i
+        sample_indices.append(assign)
+    sample_indices = torch.cat(sample_indices, dim=0).to(dets[0].device)
+
+    # Flatten detections
+    flat_dets = []
+    for det in dets:
+        flat = []
+        for sample_i, n_dets in enumerate(n_dets_per_sample):
+            if det.size() and n_dets > 0:
+                flat.append(det[sample_i, :n_dets, ...])
+        if len(flat) > 0:
+            flat_dets.append(torch.cat(flat, dim=0))
+        else:
+            empty = det.new(torch.Size()).zero_()
+            flat_dets.append(empty)
+
+    return tuple(flat_dets) + (sample_indices,)
+
+def flatten_detections(n_dets_per_sample, *dets):
+    """
+    Flatten detection tensors from shape [batch, detections, ...] with zero padding
+    in the detections axis for unused detections. The number of used detections in
+    each sample is specified in n_dets_per_sample.
+    :param n_dets_per_sample: Number of detections in each sample in the batch
+    :param dets: tensors of detections, where each tensor is of shape [batch, detection, ...]
+    :return: (flat_dets0, flat_dets1, ...flat_detsN) where
+        flat_dets0..flat_detsN are tensors of shape [batch/detection, ...]
+    """
+    # Flatten detections
+    flat_dets = []
+    for det in dets:
+        flat = []
+        #print("det shape: ", det.shape)
+        for sample_i, n_dets in enumerate(n_dets_per_sample):
+            if det.size() and n_dets > 0:
+                flat.append(det[sample_i, :n_dets, ...])
+        if len(flat) > 0:
+            flat_dets.append(torch.cat(flat, dim=0))
+        else:
+            empty = det.new(torch.Size()).zero_()
+            flat_dets.append(empty)
+
+    return tuple(flat_dets)
+
+def unflatten_detections(n_dets_per_sample, *flat_dets):
+    """
+    Un-flatten the detections in the tensors in flat_dets.
+    :param n_dets_per_sample: Number of detections in each sample in the batch
+    :param flat_dets: tensors of detections, where each tensor is of shape [sample/detection, ...]
+    :return: dets where
+        dets is a list of tensors of shape [batch, detection, ...]
+        with zero-padding for unused detections
+    """
+
+    if len(n_dets_per_sample) == 1:
+        return [d[None] for d in flat_dets]
+    else:
+        max_n_dets = max(n_dets_per_sample)
+        n_samples = len(n_dets_per_sample)
+
+        dets = [fdet.new(torch.Size((n_samples, max_n_dets, *fdet.size()[1:]))).zero_().to(fdet.device)
+                for fdet in flat_dets]
+
+        offset = 0
+        for sample_i in range(n_samples):
+            n_dets = n_dets_per_sample[sample_i]
+            if n_dets > 0:
+                for det, fdet in zip(dets, flat_dets):
+                    det[sample_i, :n_dets] = fdet[offset:offset + n_dets]
+                offset += n_dets
+        return dets
+
+def concatenate_detection_tensors(dets):
+    """
+    Concatenate detection tensors along the batch axis
+    Each tensor is a Torch tensor of shape [batch, detection, ...]
+    Concatenates torch tensors along the batch axis, zero-padding the detection axis if necessary.
+    :param dets: list of Torch tensors
+    :return: (detections, n_dets_per_sample) where
+        detections is the concatenated tensor
+        n_dets_per_sample is a list giving the number of valid detections per batch sample
+    """
+    n_dets_per_sample = [(d.size()[1] if len(d.size())>=2 else 0) for d in dets]
+
+    if len(dets) == 1:
+        return dets[0], n_dets_per_sample
+
+    #print(" n dets per sample ", n_dets_per_sample)
+    #print("dets: ", len(dets))
+    #print(dets[0].shape, dets[1].shape)
+
+    max_dets = max(n_dets_per_sample)
+    #print("max dets: ", max_dets)
+    det_shape = ()
+    example_det = dets[0]
+    for d, n_dets in zip(dets, n_dets_per_sample):
+        if n_dets != 0:
+            det_shape = d.size()[2:]
+            example_det = d
+            break
+    if max_dets > 0:
+        padded_dets = []
+        for det, n_dets in zip(dets, n_dets_per_sample):
+            if n_dets < max_dets:
+                z = example_det.new(1, max_dets - n_dets, *det_shape).zero_().to(det.device)
+                if n_dets == 0:
+                    padded_dets.append(z)
+                else:
+                    padded_dets.append(torch.cat([det, z], dim=1))
+            else:
+                padded_dets.append(det)
+        return torch.cat(padded_dets, dim=0), n_dets_per_sample
+    else:
+        return example_det.new(0), n_dets_per_sample
+
+def concatenate_detections(*dets):
+    """
+    Concatenate detections along the batch axis
+    Each entry in det_tuples is a tuple of detections for the corresponding sample
+    :param dets: each item is a list of Torch tensors
+    :return: (detections, n_dets_per_sample), where:
+        detections is a tuple of concatenated tensors
+        n_dets_per_sample is a list giving the number of valid detections per batch sample
+    """
+    detections = []
+    n_dets_per_sample = []
+    for dets_by_sample in dets:
+        cat_dets, n_dets_per_sample = concatenate_detection_tensors(list(dets_by_sample))
+        detections.append(cat_dets)
+    return tuple(detections), n_dets_per_sample
+
+_EMPTY_SIZES = {torch.Size([]), torch.Size([0])}
+
+def not_empty(tensor):
+    return tensor.size() not in _EMPTY_SIZES
+
+def is_empty(tensor):
+    return tensor.size() in _EMPTY_SIZES
+
+def pyramid_roi_align(inputs, pool_size, image_shape, n_boxes_per_sample):
+    """Implements ROI Pooling on multiple levels of the feature pyramid.
+
+	Params:
+	- pool_size: [height, width] of the output pooled regions. Usually [7, 7]
+	- image_shape: [height, width, channels]. Shape of input image in pixels
+
+	Inputs:
+	- boxes: [batch, num_boxes, (y1, x1, y2, x2)] in normalized
+			 coordinates.
+	- Feature maps: List of feature maps from different levels of the pyramid.
+					Each is [batch, channels, height, width]
+
+	Output:
+	Pooled regions in the shape: [num_boxes, height, width, channels].
+	The width and height are those specific in the pool_shape in the layer
+	constructor.
+	"""
+
+    ## Crop boxes [batch, num_boxes, (y1, x1, y2, x2)] in normalized coords
+    boxes = inputs[0]
+
+    ## Feature Maps. List of feature maps from different level of the
+    ## feature pyramid. Each is [batch, height, width, channels]
+    feature_maps = inputs[1:]
+
+    #print(" boxes: ", boxes.shape)
+    #print("n boxes: ", n_boxes_per_sample)
+    boxes_flat, box_sample_indices = flatten_detections_with_sample_indices(n_boxes_per_sample, boxes)
+
+    #print("flat box: ", boxes_flat.shape)
+
+    ## Assign each ROI to a level in the pyramid based on the ROI area.
+    y1, x1, y2, x2 = boxes_flat.chunk(4, dim=1)
+    h = y2 - y1
+    w = x2 - x1
+
+    # print(" ---> pyramid roi align :")
+    # print( " h, w : ", h.shape, w.shape )
+
+    ## Equation 1 in the Feature Pyramid Networks paper. Account for
+    ## the fact that our coordinates are normalized here.
+    ## e.g. a 224x224 ROI (in pixels) maps to P4
+    image_area = Variable(torch.FloatTensor([float(image_shape[0] * image_shape[1])]), requires_grad=False)
+    # print(" image area: ", image_area)
+    if boxes.is_cuda:
+        image_area = image_area.cuda()
+    roi_level = 4 + log2(torch.sqrt(h * w) / (224.0 / torch.sqrt(image_area)))
+    # print(" roilevel 1: ", roi_level.shape, " ex: ", roi_level[0])
+    roi_level = roi_level.round().int()
+    # print(" roilevel 2: ", roi_level.shape, " ex: ", roi_level[0])
+    roi_level = roi_level.clamp(2, 5)
+    # print(" roilevel 3: ", roi_level.shape, " ex: ", roi_level[0])
+
+    ## Loop through levels and apply ROI pooling to each. P2 to P5.
+
+    pooled = []
+    box_to_level = []
+    for i, level in enumerate(range(2, 6)):
+        ix = roi_level == level
+        if not ix.any():
+            continue
+        ix = torch.nonzero(ix)[:, 0]
+        level_boxes = boxes_flat[ix.data, :]
+        level_sample_indices = box_sample_indices[ix]
+
+        ## Keep track of which box is mapped to which level
+        box_to_level.append(ix.data)
+
+        ## Stop gradient propogation to ROI proposals
+        level_boxes = level_boxes.detach()
+
+        print("feats: ", feature_maps[i].shape)
+        print("level boxes: ", level_boxes.shape)
+        print("level_sample_indices: ", level_sample_indices.shape)
+        ## Crop and Resize
+        ## From Mask R-CNN paper: "We sample four regular locations, so
+        ## that we can evaluate either max or average pooling. In fact,
+        ## interpolating only a single value at each bin center (without
+        ## pooling) is nearly as effective."
+        #
+        ## Here we use the simplified approach of a single value per bin,
+        ## which is how it's done in tf.crop_and_resize()
+        ## Result: [batch * num_boxes, pool_height, pool_width, channels]
+
+        # print(" pooling layer: ", i, " box size: ", ind.shape, " feature map: ", feature_maps[i].shape)
+        pooled_features = CropAndResizeFunction(pool_size, pool_size, 0)(feature_maps[i], level_boxes, level_sample_indices)
+        print(" cropped feature: ", pooled_features.shape)
         pooled.append(pooled_features)
 
     # print(" pooled: ", pooled[0].shape, pooled[1].shape, pooled[2].shape)
@@ -957,7 +1212,6 @@ def detection_target_layer_(proposals, gt_class_ids, gt_boxes, gt_masks, config)
 
     return rois, roi_gt_class_ids, deltas, masks
 
-
 ############################################################
 #  Detection Layer
 ############################################################
@@ -1115,6 +1369,7 @@ def refine_detections_(rois, probs, deltas, window, config, return_indices=False
         return result, keep.data, ori_rois
 
     return result
+    #return refined_rois[keep.data], class_ids[keep.data].unsqueeze(1).float(), class_scores[keep.data].unsqueeze(1)
 
 
 def detection_layer_(config, rois, mrcnn_class, mrcnn_bbox, image_meta, return_indices=False, use_nms=1,
@@ -1137,8 +1392,37 @@ def detection_layer_(config, rois, mrcnn_class, mrcnn_bbox, image_meta, return_i
         else:
             return torch.zeros(0)
 
-    return refine_detections_(rois, mrcnn_class, mrcnn_bbox, window, config,
+    return refine_detections_(rois, mrcnn_class[0], mrcnn_bbox[0], window, config,
                               return_indices=return_indices, use_nms=use_nms, one_hot=one_hot)
+# batch version of detection layer for inference
+def batch_detection_layer_(config, rois, mrcnn_class, mrcnn_bbox, image_metas, return_indices=False, use_nms=1, one_hot=True):
+
+    device = mrcnn_bbox.device
+
+    detections = []
+    n_detections_total = 0
+    #n_rois = config.DETECTION_MAX_INSTANCES
+    for sample_i in range(config.BATCH_SIZE):
+        _, _, window, _ = parse_image_meta(image_metas[sample_i].unsqueeze(0))
+        detection = refine_detections_(rois, mrcnn_class[sample_i],
+                                           mrcnn_bbox[sample_i],
+                                           window,
+                                           config,
+                                           return_indices=return_indices,
+                                           use_nms=use_nms, one_hot=one_hot)
+        if detection is None:
+            detections = torch.zeros([0], dtype=torch.float, device=device)
+        else:
+            n_detections_total += detections.size()[0]
+            detections = detections.unsqueeze(0)
+            detections.append(detections)
+
+    if n_detections_total > 0:
+        detections = torch.cat(detections, dim=0)
+    else:
+        detections = torch.zeros([0], dtype=torch.float, device=device)
+
+    return detections
 
 
 ############################################################
@@ -1222,10 +1506,10 @@ class Classifier(nn.Module):
 
         self.linear_bbox = nn.Linear(1024, num_classes * 4)
 
-    def forward(self, x, rois):
+    def forward(self, x, rois, n_rois_per_sample):
         # print(" ==== WELCOME TO CLASSIFIER ==== ")
-        #print("rois, x: ", rois.shape, x.shape)
-        x = pyramid_roi_align([rois] + x, self.pool_size, self.image_shape)
+        # print("rois, x: ", len(x), rois.shape)
+        x = pyramid_roi_align([rois] + x, self.pool_size, self.image_shape, n_rois_per_sample)
         # print(" after roi align: ", x.shape)
         x = self.conv1(x)
         x = self.bn1(x)
@@ -1242,8 +1526,13 @@ class Classifier(nn.Module):
         mrcnn_bbox = self.linear_bbox(x)
         mrcnn_bbox = mrcnn_bbox.view(mrcnn_bbox.size()[0], -1, 4)
 
-        # print(" ==== GOOD BYE! ==== ")
 
+        # print("bbox shape: ", mrcnn_bbox.shape, " probs: ", mrcnn_probs.shape)
+        (mrcnn_class_logits,) = unflatten_detections(n_rois_per_sample, mrcnn_class_logits)
+        (mrcnn_probs,) = unflatten_detections(n_rois_per_sample, mrcnn_probs)
+        (mrcnn_bbox,) = unflatten_detections(n_rois_per_sample, mrcnn_bbox)
+
+        # print(" ==== GOOD BYE! ==== ")
         return [mrcnn_class_logits, mrcnn_probs, mrcnn_bbox]
 
 
@@ -1269,9 +1558,9 @@ class Mask(nn.Module):
         self.sigmoid = nn.Sigmoid()
         self.relu = nn.ReLU(inplace=True)
 
-    def forward(self, x, rois, pool_features=True):
+    def forward(self, x, rois, n_rois_per_sample, pool_features=True):
         if pool_features:
-            roi_features = pyramid_roi_align([rois] + x, self.pool_size, self.image_shape)
+            roi_features = pyramid_roi_align([rois] + x, self.pool_size, self.image_shape, n_rois_per_sample)
         else:
             roi_features = x
             pass
@@ -1291,6 +1580,9 @@ class Mask(nn.Module):
         x = self.relu(x)
         x = self.conv5(x)
         x = self.sigmoid(x)
+
+        #print(" this is mask: ", x.shape, n_rois_per_sample)
+        (x,) = unflatten_detections(n_rois_per_sample, x)
 
         return x, roi_features
 
@@ -1484,31 +1776,31 @@ class Depth(nn.Module):
                 feature_maps[c] = feature_maps[c][:, :, padding * pow(2, c - 2):-padding * pow(2, c - 2)]
                 continue
             pass
-        # print("FMap 0: ", feature_maps[0].shape)
+        print("FMap 0: ", feature_maps[0].shape)
         x = self.conv1(feature_maps[0])
-        # print("first conv of feature map: ", x.shape)
+        print("first conv of feature map: ", x.shape)
         x = self.deconv1(x)
-        # print("deconv conv: ", x.shape)
+        print("deconv conv: ", x.shape)
         y = self.conv2(feature_maps[1])
-        # print("conv of fmap 1:", y.shape)
+        print("conv of fmap 1:", y.shape)
         x = torch.cat([y, x], dim=1)
-        # print("concatenated: ", x.shape)
+        print("concatenated: ", x.shape)
         x = self.deconv2(x)
-        # print("Deconv again: ", x.shape)
+        print("Deconv again: ", x.shape)
         if self.crop:
             x = x[:, :, 5:35]
         y = self.conv3(feature_maps[2])
         # print("conv3 of map 2: ", y.shape)
         # print("vector together: ", (y, x).shape)
         x = torch.cat([y, x], dim=1)
-        # print("concated: ", x.shape)
+        print("concated: ", x.shape)
         x = self.deconv3(x)
-        # print("deconv3: ", x.shape)
+        print("deconv3: ", x.shape)
         x = self.deconv4(torch.cat([self.conv4(feature_maps[3]), x], dim=1))
         x = self.deconv5(torch.cat([self.conv5(feature_maps[4]), x], dim=1))
-        # print(" Normal before last conv ", x.shape)
+        print(" Normal before last conv ", x.shape)
         x = self.depth_pred(x)
-        # print(" Normal after last conv ", x.shape)
+        print(" Normal after last conv ", x.shape)
 
         if self.crop:
             x = torch.nn.functional.interpolate(x, size=(480, 640), mode='bilinear')
@@ -1817,7 +2109,6 @@ def compute_depth_loss_edge(target, pred, edges):
     loss = l1LossMask(pred, target, edges)
 
     return loss
-
 
 
 def compute_depth_loss(target_depth, pred_depth, config, edges = None):
@@ -2910,7 +3201,7 @@ class MaskRCNN(nn.Module):
                 try:
                     self.load_state_dict(state_dict, strict=False)
                 except:
-                    print('load only base model')
+                    # print('load only base model')
                     try:
                         state_dict = {k: v for k, v in state_dict.items() if
                                       'classifier.linear_class' not in k and 'classifier.linear_bbox' not in k and 'mask.conv5' not in k}
@@ -2918,7 +3209,7 @@ class MaskRCNN(nn.Module):
                         state.update(state_dict)
                         self.load_state_dict(state)
                     except:
-                        print('change input dimension')
+                        # print('change input dimension')
                         state_dict = {k: v for k, v in state_dict.items() if
                                       'classifier.linear_class' not in k and 'classifier.linear_bbox' not in k and 'mask.conv5' not in k and 'fpn.C1.0' not in k and 'classifier.conv1' not in k}
                         state = self.state_dict()
@@ -2927,7 +3218,7 @@ class MaskRCNN(nn.Module):
                         pass
                     pass
         else:
-            print("Weight file not found ...")
+            # print("Weight file not found ...")
             exit(1)
         ## Update the log directory
         self.set_log_dir(filepath)
@@ -3637,9 +3928,9 @@ class MaskRCNN(nn.Module):
         boxes = np.multiply(boxes - shifts, scales).astype(np.int32)
 
         if debug:
-            print(masks.shape, boxes.shape)
+            # print(masks.shape, boxes.shape)
             for maskIndex, mask in enumerate(masks):
-                print(maskIndex, boxes[maskIndex].astype(np.int32))
+                # print(maskIndex, boxes[maskIndex].astype(np.int32))
                 cv2.imwrite('test/local_mask_' + str(maskIndex) + '.png', (mask * 255).astype(np.uint8))
                 continue
 
@@ -3664,7 +3955,7 @@ class MaskRCNN(nn.Module):
             if full_masks else np.empty((0,) + masks.shape[1:3])
 
         if debug:
-            print(full_masks.shape)
+            # print(full_masks.shape)
             for maskIndex in range(full_masks.shape[2]):
                 cv2.imwrite('test/full_mask_' + str(maskIndex) + '.png',
                             (full_masks[:, :, maskIndex] * 255).astype(np.uint8))
@@ -3826,7 +4117,7 @@ class DepthCNN(nn.Module):
             try:
                 self.load_state_dict(state_dict, strict=False)
             except:
-                print('load only base model')
+                # print('load only base model')
                 try:
                     state_dict = {k: v for k, v in state_dict.items() if
                                   'classifier.linear_class' not in k and 'classifier.linear_bbox' not in k and 'mask.conv5' not in k}
@@ -3834,7 +4125,7 @@ class DepthCNN(nn.Module):
                     state.update(state_dict)
                     self.load_state_dict(state)
                 except:
-                    print('change input dimension')
+                    # print('change input dimension')
                     state_dict = {k: v for k, v in state_dict.items() if
                                   'classifier.linear_class' not in k and 'classifier.linear_bbox' not in k and 'mask.conv5' not in k and 'fpn.C1.0' not in k and 'classifier.conv1' not in k}
                     state = self.state_dict()
