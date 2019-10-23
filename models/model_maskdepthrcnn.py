@@ -334,6 +334,43 @@ def rescale_depth_target(target_depth, gt_boxes, mini_shape):
     return target_depth
 
 
+# Collect the rois and build a global map that fuses all roi features.
+def build_roi_features(rois, features, global_shape):
+    '''
+        rois: [1, N, 4]
+        features: [1, 100, 64, 56, 56] # 64 or 38(num classes) or make it 1?
+        global_shape: [1, 1, 320, 320] # shape of the combined features map
+    '''
+    n_rois = rois.shape[1]
+    # global feat shape: [1, 1, H, W] ( H, W = 320)
+    height, width = global_shape[0], global_shape[1]
+    full_feats = torch.zeros([1, 64, n_rois, height, width], requires_grad=False)
+    scale = Variable(torch.from_numpy(np.array([height, width, height, width])).float(), requires_grad=False)
+
+    # Rois come in normalized format. Scale them to the pixel format.
+    # Rois shape = [1, n_rois, 4]
+    scaled_rois = torch.mul(rois[0], scale.cuda())
+    scaled_rois = torch.round(scaled_rois)
+
+    #print("building roi features...")
+    for i in range(n_rois):
+        y1, x1, y2, x2 = scaled_rois[i]
+        roi_feat = features[0, i]  # features must be of shape [1, C, H, W] eg. H, W= 56, C=64
+        feat = F.interpolate(roi_feat.unsqueeze(0), (y2 - y1, x2 - x1))  # Reshape the feature to the global size
+        # Place the roi feature on the global map
+        full_feats[:, :, i, y1.long():y2.long(), x1.long():x2.long()] = feat
+
+    #print("built is done...", full_feats.shape)
+    #print(full_feats.sum(dim=2).shape)
+
+    #print(" full feats device: ", full_feats.device)
+    mean_feats = full_feats.sum(dim=2) / n_rois
+    mean_feats = mean_feats.detach()
+    #print("mean feats = ", mean_feats.shape)
+    #print(" mean device: ", mean_feats.device)
+    #return mean_feats
+    return mean_feats
+
 def detection_target_depth(proposals, gt_class_ids, gt_boxes, gt_masks, gt_depths, gt_normals, config):
     """ Subsamples proposals and generates target box refinment, class_ids,
         and masks for each.
@@ -1065,8 +1102,8 @@ def detection_target_batch(proposals, gt_class_ids, gt_boxes, gt_masks, gt_depth
                 = detection_target_onesample(proposals[sample_i, :n_props], gt_class_ids[sample_i], gt_boxes[sample_i],
                                                         gt_masks[sample_i], gt_depths[sample_i], gt_normals[sample_i],
                                                         config)
-            print(" one sample, sample_rois: ", sample_rois.shape, " sample_gt_class_ids: ", sample_gt_class_ids.shape)
-            print("    n props: ", n_props)
+            #print(" one sample, sample_rois: ", sample_rois.shape, " sample_gt_class_ids: ", sample_gt_class_ids.shape)
+            #print("    n props: ", n_props)
             if not_empty(sample_rois):
                 sample_rois = sample_rois.unsqueeze(0)
                 if has_rcnn_predictions:
@@ -1721,6 +1758,7 @@ class DatasetDepthRCNN(torch.utils.data.Dataset):
 #  Depth Head for MaskRCNN
 ############################################################
 
+## This depth head is similar to mask architecture. Nothing complicated.
 class DepthMask(nn.Module):
     def __init__(self, config, depth, pool_size, image_shape, num_classes):
         super(DepthMask, self).__init__()
@@ -1782,8 +1820,129 @@ class DepthMask(nn.Module):
 
         (x,) = unflatten_detections(n_targets_per_sample, x)
 
-        return x, roi_features
+        return x #, roi_features
 
+def pyramid_roi_skip(feature_maps, rois, n_targets_per_sample, pool_size):
+    # flatten the boxes for batch processing
+    # boxes_flat = [N, 4] , box_sample_indices = [N] where N = n_targets_per_sample
+    boxes_flat, box_sample_indices = flatten_detections_with_sample_indices(n_targets_per_sample, rois)
+
+    # crop the feature maps for each roi, for all levels of the pyramid
+    # feature map sizes are 160, 80, 40, 20
+    # alternative pool size = {0: 112, 1: 56, 2: 28, 3:14}
+    roi_feature_maps = []
+    # pool_size = 56
+    for c in range(4):
+        resize_map = CropAndResizeFunction(pool_size, pool_size, 0)(feature_maps[c], boxes_flat,
+                                                                    box_sample_indices)
+        roi_feature_maps.append(resize_map)
+        pool_size = int(pool_size / 2)
+
+    #roi_feature_maps = torch.cat(roi_feature_maps, dim=0)
+
+    return roi_feature_maps[0], roi_feature_maps[1], roi_feature_maps[2], roi_feature_maps[3]
+
+# Depth head for rois, skip connections for each pyramid level.
+class DepthHead(nn.Module):
+    def __init__(self, num_classes):
+        super(DepthHead, self).__init__()
+        self.conv1 = nn.Sequential(
+            nn.Conv2d(256, 128, kernel_size=3, stride=1, padding=1),
+            nn.BatchNorm2d(128, eps=0.001, momentum=0.01),
+            nn.ReLU(inplace=True)
+        )
+        self.conv2 = nn.Sequential(
+            nn.Conv2d(256, 128, kernel_size=3, stride=1, padding=1),
+            nn.BatchNorm2d(128, eps=0.001, momentum=0.01),
+            nn.ReLU(inplace=True)
+        )
+        self.conv3 = nn.Sequential(
+            nn.Conv2d(256, 128, kernel_size=3, stride=1, padding=1),
+            nn.BatchNorm2d(128, eps=0.001, momentum=0.01),
+            nn.ReLU(inplace=True)
+        )
+        self.conv4 = nn.Sequential(
+            nn.Conv2d(256, 128, kernel_size=3, stride=1, padding=1),
+            nn.BatchNorm2d(128, eps=0.001, momentum=0.01),
+            nn.ReLU(inplace=True)
+        )
+        self.conv5 = nn.Sequential(
+            nn.Conv2d(256, 128, kernel_size=3, stride=1, padding=1),
+            nn.BatchNorm2d(128, eps=0.001, momentum=0.01),
+            nn.ReLU(inplace=True)
+        )
+        self.conv6 = nn.Sequential(
+            nn.Conv2d(128, 64, kernel_size=3, stride=1, padding=1),
+            nn.BatchNorm2d(64, eps=0.001, momentum=0.01),
+            nn.ReLU(inplace=True)
+        )
+
+        self.deconv1 = nn.Sequential(
+            torch.nn.Upsample(scale_factor=2, mode='nearest'),
+            nn.Conv2d(128, 128, kernel_size=3, stride=1, padding=1),
+            nn.BatchNorm2d(128, eps=0.001, momentum=0.01),
+            nn.ReLU(inplace=True)
+        )
+        self.deconv2 = nn.Sequential(
+            torch.nn.Upsample(scale_factor=2, mode='nearest'),
+            nn.Conv2d(256, 128, kernel_size=3, stride=1, padding=1),
+            nn.BatchNorm2d(128, eps=0.001, momentum=0.01),
+            nn.ReLU(inplace=True)
+        )
+        self.deconv3 = nn.Sequential(
+            torch.nn.Upsample(scale_factor=2, mode='nearest'),
+            nn.Conv2d(256, 128, kernel_size=3, stride=1, padding=1),
+            nn.BatchNorm2d(128, eps=0.001, momentum=0.01),
+            nn.ReLU(inplace=True)
+        )
+        self.deconv4 = nn.Sequential(
+            torch.nn.Upsample(scale_factor=2, mode='nearest'),
+            nn.Conv2d(256, 128, kernel_size=3, stride=1, padding=1),
+            nn.BatchNorm2d(128, eps=0.001, momentum=0.01),
+            nn.ReLU(inplace=True)
+        )
+
+        self.depth_pred = nn.Conv2d(64, num_classes, kernel_size=3, stride=1, padding=1)
+        return
+
+    def forward(self, feature_maps, rois, n_targets_per_sample):
+
+        pool_size = 56
+        fmap0, fmap1, fmap2, fmap3 = pyramid_roi_skip(feature_maps, rois, n_targets_per_sample, pool_size)
+
+        # print("FMap 0: ", feature_maps[3].shape)
+        #print("fmap: ", fmap3.requires_grad)
+        #print("fmap type", fmap3.type)
+        x = self.conv1(fmap3)
+        # print("first conv of feature map: ", x.shape)
+        x = self.deconv1(x)
+        # print("deconv conv: ", x.shape)
+        # print("before conv of fmap 1 y:", feature_maps[2].shape)
+        y = self.conv2(fmap2)
+        # print("conv of fmap 1:", y.shape)
+        x = torch.cat([y, x], dim=1)
+        # print("concatenated: ", x.shape)
+        x = self.deconv2(x)
+        # print("Deconv again: ", x.shape)
+        y = self.conv3(fmap1)
+        # print("conv3 of map 2: ", y.shape)
+        x = torch.cat([y, x], dim=1)
+        # print("concated: ", x.shape)
+        x = self.deconv3(x)
+        # print("deconv3: ", x.shape)
+        y = self.conv4(fmap0)
+        x = torch.cat([y, x], dim=1)
+        x = self.conv5(x)
+        #print("Conv 5: ", x.shape)
+        x = self.conv6(x)
+        feats = x.clone()
+        #print("Last conv: ", x.shape)
+        x = self.depth_pred(x)
+
+        #print("last shape", x.shape)
+        (x,) = unflatten_detections(n_targets_per_sample, x)
+        #print("unflattened x: ", x.shape)
+        return x, feats
 
 class Depth(nn.Module):
     def __init__(self, num_output_channels=1):
@@ -1856,33 +2015,37 @@ class Depth(nn.Module):
             padding = 5
             for c in range(2, 5):
                 feature_maps[c] = feature_maps[c][:, :, padding * pow(2, c - 2):-padding * pow(2, c - 2)]
-                print("feat cropped: ", c, feature_maps[c].shape)
+                #print("feat cropped: ", c, feature_maps[c].shape)
                 continue
             pass
-        print("FMap 0: ", feature_maps[0].shape)
+        #print("FMap 0: ", feature_maps[0].shape)
         x = self.conv1(feature_maps[0])
-        print("first conv of feature map: ", x.shape)
+        #print("first conv of feature map: ", x.shape)
         x = self.deconv1(x)
-        print("deconv conv: ", x.shape)
-        print("before conv of fmap 1 y:", feature_maps[1].shape)
+        #print("deconv conv: ", x.shape)
+        #print("before conv of fmap 1 y:", feature_maps[1].shape)
         y = self.conv2(feature_maps[1])
-        print("conv of fmap 1:", y.shape)
+        #print("conv of fmap 1:", y.shape)
         x = torch.cat([y, x], dim=1)
-        print("concatenated: ", x.shape)
+        #print("concatenated: ", x.shape)
         x = self.deconv2(x)
-        print("Deconv again: ", x.shape)
+        #print("Deconv again: ", x.shape)
         if self.crop:
             x = x[:, :, 5:35]
-            print("x cropped: ", x.shape)
+            #print("x cropped: ", x.shape)
         y = self.conv3(feature_maps[2])
-        print("conv3 of map 2: ", y.shape)
+        #print("conv3 of map 2: ", y.shape)
         x = torch.cat([y, x], dim=1)
-        print("concated: ", x.shape)
+        #print("concated: ", x.shape)
         x = self.deconv3(x)
-        print("deconv3: ", x.shape)
+        #print("deconv3: ", x.shape)
         x = self.deconv4(torch.cat([self.conv4(feature_maps[3]), x], dim=1))
+        #print("deconv4: ", x.shape)
         x = self.deconv5(torch.cat([self.conv5(feature_maps[4]), x], dim=1))
+        feats = x.clone()
+        #print("deconv5: ", x.shape)
         x = self.depth_pred(x)
+        #print("Last: ", x.shape)
 
         if self.crop:
             x = torch.nn.functional.interpolate(x, size=(480, 640), mode='bilinear')
@@ -1891,8 +2054,64 @@ class Depth(nn.Module):
         else:
             x = torch.nn.functional.interpolate(x, size=(640, 640), mode='bilinear')
             pass
-        return x
 
+        #print(" Normal after interpolate ", x.shape, " crop? ", self.crop)
+
+        return x, feats
+
+
+class DepthRefine(nn.Module):
+    def __init__(self):
+        super(DepthRefine, self).__init__()
+
+        self.conv1_1 = nn.Sequential(
+            nn.Conv2d(128, 128, kernel_size=3, stride=1, padding=1),
+            nn.BatchNorm2d(128, eps=0.001, momentum=0.01),
+            nn.ReLU(inplace=True)
+        )
+
+        self.conv1_2 = nn.Sequential(
+            nn.Conv2d(128, 64, kernel_size=3, stride=1, padding=1),
+            nn.BatchNorm2d(64, eps=0.001, momentum=0.01),
+            nn.ReLU(inplace=True)
+        )
+
+        self.conv2_1 = nn.Sequential(
+            nn.Conv2d(128, 128, kernel_size=3, stride=1, padding=1),
+            nn.BatchNorm2d(128, eps=0.001, momentum=0.01),
+            nn.ReLU(inplace=True)
+        )
+
+        self.conv2_2 = nn.Sequential(
+            nn.Conv2d(128, 64, kernel_size=3, stride=1, padding=1),
+            nn.BatchNorm2d(64, eps=0.001, momentum=0.01),
+            nn.ReLU(inplace=True)
+        )
+
+        self.deconv = nn.Sequential(
+            torch.nn.Upsample(scale_factor=2, mode='nearest'),
+            nn.Conv2d(64, 64, kernel_size=3, stride=1, padding=1),
+            nn.BatchNorm2d(64, eps=0.001, momentum=0.01),
+            nn.ReLU(inplace=True)
+        ).cuda()
+
+        self.depth_pred = nn.Conv2d(64, 1, kernel_size=3, stride=1, padding=1)
+
+        return
+
+    def forward(self, roi_feats_all, global_feats):
+        comb_feats = torch.cat([roi_feats_all, global_feats], dim=1)
+        a = self.conv1_1(comb_feats)
+        a = self.conv1_2(a)
+        b = self.conv2_1(comb_feats)
+        b = self.conv2_2(b)
+        x = a * roi_feats_all
+        y = (1 - a) * global_feats
+        final_feat = x + y + b
+        penund_feat = self.deconv(final_feat)
+        final_depth = self.depth_pred(penund_feat)
+
+        return final_depth
 
 class NormalMask(nn.Module):
     def __init__(self, config, depth, pool_size, image_shape, num_classes):
@@ -2165,10 +2384,14 @@ class MaskDepthRCNN(nn.Module):
         self.mask = Mask(config, 256, config.MASK_POOL_SIZE, config.IMAGE_SHAPE, config.NUM_CLASSES)
 
         ## FPN Depth
-        self.depthmask = DepthMask(config, 256, config.MASK_POOL_SIZE, config.IMAGE_SHAPE, config.NUM_CLASSES)
+        #self.depthmask = DepthMask(config, 256, config.MASK_POOL_SIZE, config.IMAGE_SHAPE, config.NUM_CLASSES)
+        self.depthmask = DepthHead(config.NUM_CLASSES)
 
         ## Global Depth
         self.depth = Depth(num_output_channels=1)
+
+        ## Depth refinement with modulation
+        self.depth_ref = DepthRefine()
 
         ## FPN Normal
         self.normalmask = NormalMask(config, 256, config.MASK_POOL_SIZE, config.IMAGE_SHAPE, config.NUM_CLASSES)
@@ -2363,8 +2586,8 @@ class MaskDepthRCNN(nn.Module):
 
         ## Run object detection
         #print("molded images shape:", molded_images.shape)
-        detections, mrcnn_mask, mrcnn_depth, mrcnn_normals, global_depth = self.predict([molded_images, image_metas],
-                                                                                        mode='inference')
+        #detections, mrcnn_mask, mrcnn_depth, mrcnn_normals, global_depth = self.predict3([molded_images, image_metas], mode='inference')
+        detections, mrcnn_mask, mrcnn_depth, mrcnn_normals, global_depth = self.predict([molded_images, image_metas], mode='inference')
 
         if len(detections[0]) == 0:
             return [{'rois': [], 'class_ids': [], 'scores': [], 'masks': [], 'parameters': []}]
@@ -2428,7 +2651,7 @@ class MaskDepthRCNN(nn.Module):
         feature_maps = [feature_map for index, feature_map in enumerate(rpn_feature_maps[::-1])]
 
         if self.config.PREDICT_GLOBAL_DEPTH:
-            global_depth = self.depth(feature_maps)
+            global_depth, _ = self.depth(feature_maps)
             global_depth = global_depth.squeeze(1)
         else:
             global_depth = torch.ones((1, self.config.IMAGE_MAX_DIM, self.config.IMAGE_MAX_DIM)).cuda()
@@ -2497,7 +2720,7 @@ class MaskDepthRCNN(nn.Module):
 
             ## Create depth for detections
             if self.config.PREDICT_DEPTH:
-                mrcnn_depth, _ = self.depthmask(mrcnn_feature_maps, detection_boxes, n_dets_per_sample)
+                mrcnn_depth,_ = self.depthmask(mrcnn_feature_maps, detection_boxes, n_dets_per_sample)
             else:
                 mrcnn_depth = Variable(torch.FloatTensor([[1, 0]])).cuda()
 
@@ -2600,6 +2823,251 @@ class MaskDepthRCNN(nn.Module):
             return [rpn_class_logits, rpn_bbox, target_class_ids, mrcnn_class_logits, target_deltas, mrcnn_bbox,
                     target_mask, mrcnn_mask, rois, target_depth, mrcnn_depth, target_normals, mrcnn_normal,
                     global_depth, n_targets_per_sample]
+
+    # Implements the feature modulation
+    def predict3(self, input, mode, use_nms=1, use_refinement=False, return_feature_map=False):
+
+        #print("Predict is called! ")
+
+        molded_images = input[0]
+        image_metas = input[1]
+
+        if mode == 'inference':
+            self.eval()
+        elif 'training' in mode:
+            self.train()
+
+            ## Set batchnorm always in eval mode during training
+            def set_bn_eval(m):
+                classname = m.__class__.__name__
+                if classname.find('BatchNorm') != -1:
+                    m.eval()
+
+            self.apply(set_bn_eval)
+
+        ## Feature extraction
+        [p2_out, p3_out, p4_out, p5_out, p6_out] = self.fpn(molded_images)
+        ## Note that P6 is used in RPN, but not in the classifier heads.
+
+        rpn_feature_maps = [p2_out, p3_out, p4_out, p5_out, p6_out]
+        mrcnn_feature_maps = [p2_out, p3_out, p4_out, p5_out]
+
+        # print("feature maps shapes: ", p2_out.shape, p3_out.shape, p4_out.shape, p5_out.shape, p6_out.shape)
+
+        feature_maps = [feature_map for index, feature_map in enumerate(rpn_feature_maps[::-1])]
+
+        if self.config.PREDICT_GLOBAL_DEPTH:
+            global_depth, global_feats = self.depth(feature_maps)
+            global_depth = global_depth.squeeze(1)
+        else:
+            global_depth = torch.ones((1, self.config.IMAGE_MAX_DIM, self.config.IMAGE_MAX_DIM)).cuda()
+
+        ## Loop through pyramid layers
+        layer_outputs = []  ## list of lists, [rpn_class_logits, rpn_probs, rpn_bbox]
+        for p in rpn_feature_maps:
+            layer_outputs.append(self.rpn(p))
+
+        ## Concatenate layer outputs
+        ## Convert from list of lists of level outputs to list of lists
+        ## of outputs across levels.
+        ## e.g. [[a1, b1, c1], [a2, b2, c2]] => [[a1, a2], [b1, b2], [c1, c2]]
+        outputs = list(zip(*layer_outputs))
+        outputs = [torch.cat(list(o), dim=1) for o in outputs]
+        rpn_class_logits, rpn_class, rpn_bbox = outputs
+
+        # print("rpn box: ", rpn_bbox.shape, " logits: ", rpn_class_logits.shape, "class: ", rpn_class.shape)
+
+        ## Generate proposals
+        ## Proposals are [batch, N, (y1, x1, y2, x2)] in normalized coordinates
+        ## and zero padded.
+        proposal_count = self.config.POST_NMS_ROIS_TRAINING if 'training' in mode and use_refinement == False \
+            else self.config.POST_NMS_ROIS_INFERENCE
+        # proposal_layer_batch
+        rpn_rois, roi_scores, n_rois_per_sample = proposal_layer_batch([rpn_class, rpn_bbox],
+                                                                       proposal_count=proposal_count,
+                                                                       nms_threshold=self.config.RPN_NMS_THRESHOLD,
+                                                                       anchors=self.anchors,
+                                                                       config=self.config)
+        # print("proposal count: ", proposal_count)
+        # print("rpn_rois: ", rpn_rois.shape)
+        #  print(" roi example: ", rpn_bbox[0, 0])
+        # print("number of rois: ", n_rois_per_sample)
+
+        # TODO: Modify inference.
+        if mode == 'inference':
+            ## Network Heads
+            ## Proposal classifier and BBox regressor heads
+            mrcnn_class_logits, mrcnn_class, mrcnn_bbox = self.classifier(mrcnn_feature_maps,
+                                                                          rpn_rois, n_rois_per_sample)
+
+            # print(mrcnn_class_logits.shape, mrcnn_class.shape, mrcnn_bbox.shape)
+            ## Detections
+            ## output is [batch, num_detections, (y1, x1, y2, x2, class_id, score)] in image coordinates
+            detections = detection_layer_(self.config, rpn_rois, mrcnn_class, mrcnn_bbox, image_metas)
+
+            if len(detections) == 0:
+                return [[]], [[]], [[]]
+            ## Convert boxes to normalized coordinates
+            ## TODO: let DetectionLayer return normalized coordinates to avoid
+            ##       unnecessary conversions
+            h, w = self.config.IMAGE_SHAPE[:2]
+            scale = Variable(torch.from_numpy(np.array([h, w, h, w])).float(), requires_grad=False)
+            if self.config.GPU_COUNT:
+                scale = scale.cuda()
+            detection_boxes = detections[:, :4] / scale
+
+
+            ## Add back batch dimension
+            n_dets_per_sample = [detection_boxes.size()[0]]
+            #print(" n dets per sample: ", n_dets_per_sample)
+            #print(" detection boxes: ", detection_boxes.shape)
+            detection_boxes = detection_boxes.unsqueeze(0)
+
+
+            ## Create masks for detections
+            mrcnn_mask, roi_features = self.mask(mrcnn_feature_maps, detection_boxes, n_dets_per_sample)
+
+
+            ## Create depth for detections
+            if self.config.PREDICT_DEPTH:
+                mrcnn_depth, local_feats = self.depthmask(mrcnn_feature_maps, detection_boxes, n_dets_per_sample)
+            else:
+                mrcnn_depth = Variable(torch.FloatTensor([[1, 0]])).cuda()
+
+            ## Feature modulation for shifting.
+            # global feats: [1, 64, 240, 320]
+            #    -> interpolate back to shape 320, 320
+            #
+            x = torch.nn.functional.interpolate(global_feats, size=(240, 320), mode='bilinear')
+            zeros = torch.zeros((len(x), 64, 40, 320)).cuda()
+            global_feats = torch.cat([zeros, x, zeros], dim=2)
+            local_feats = local_feats.unsqueeze(0)
+
+            # print("Rois shape before combining: ", rois.shape)
+            roi_feats_all = build_roi_features(detection_boxes, local_feats, [320, 320])
+
+            if self.config.GPU_COUNT:
+                roi_feats_all = roi_feats_all.cuda()
+                global_feats = global_feats.cuda()
+
+
+            final_dep = self.depth_ref(roi_feats_all, global_feats)
+            final_dep = final_dep.squeeze(1)
+
+
+            # normals removed here.
+            mrcnn_normal = Variable(torch.FloatTensor([[1, 0]])).cuda()
+
+            ## Add back batch dimension
+            detections = detections.unsqueeze(0)
+            # mrcnn_mask = mrcnn_mask.unsqueeze(0)
+            # mrcnn_depth = mrcnn_depth.unsqueeze(0)
+            # mrcnn_normal = mrcnn_normal.unsqueeze(0)
+            # print("mask shape in predict: ", mrcnn_mask.shape)
+
+            # Return final_dep instead of global_depth
+            return [detections, mrcnn_mask, mrcnn_depth, mrcnn_normal, final_dep]
+
+        elif mode == 'training':
+
+            gt_class_ids = input[2]
+            gt_boxes = input[3]
+            gt_masks = input[4]
+            gt_depths = input[5]
+            gt_normals = input[6]
+
+            ## Normalize coordinates
+            h, w = self.config.IMAGE_SHAPE[:2]
+            scale = Variable(torch.from_numpy(np.array([h, w, h, w])).float(), requires_grad=False)
+            if self.config.GPU_COUNT:
+                scale = scale.cuda()
+            gt_boxes = gt_boxes / scale
+
+            ## Generate detection targets
+            ## Subsamples proposals and generates target outputs for training
+            ## Note that proposal class IDs, gt_boxes, and gt_masks are zero
+            ## padded. Equally, returned rois and targets are zero padded.
+            rois, target_class_ids, target_deltas, target_mask, target_depth, target_normals, n_targets_per_sample = \
+                detection_target_batch(rpn_rois, gt_class_ids, gt_boxes, gt_masks, gt_depths, gt_normals, self.config,
+                                       n_rois_per_sample)
+
+            # print(" gt boxes shape: ", gt_boxes.shape)
+            # print(" target rois: ", rois.shape)
+            # print(" target mask: ", target_mask.shape)
+            # print(" target depth: ", target_depth.shape)
+
+            if self.config.PREDICT_DEPTH:
+                target_depth = shift_depth_target(target_mask, target_depth)
+                # target_depth = rescale_depth_target(target_depth, gt_boxes, config.MINI_MASK_SHAPE)
+
+            # print(" target depth after shift: ", target_depth.shape )
+
+            if max(n_targets_per_sample) == 0:
+                mrcnn_class_logits = Variable(torch.FloatTensor())
+                mrcnn_class = Variable(torch.IntTensor())
+                mrcnn_bbox = Variable(torch.FloatTensor())
+                mrcnn_mask = Variable(torch.FloatTensor())
+                mrcnn_depth = Variable(torch.FloatTensor())
+                mrcnn_normal = Variable(torch.FloatTensor())
+                if self.config.GPU_COUNT:
+                    mrcnn_class_logits = mrcnn_class_logits.cuda()
+                    mrcnn_class = mrcnn_class.cuda()
+                    mrcnn_bbox = mrcnn_bbox.cuda()
+                    mrcnn_mask = mrcnn_mask.cuda()
+                    mrcnn_depth = mrcnn_depth.cuda()
+                    mrcnn_normal = mrcnn_normal.cuda()
+            else:
+                ## Network Heads
+                ## Proposal classifier and BBox regressor heads
+                # print([maps.shape for maps in mrcnn_feature_maps], target_parameters.shape)
+                mrcnn_class_logits, mrcnn_class, mrcnn_bbox = self.classifier(mrcnn_feature_maps, rois,
+                                                                              n_targets_per_sample)
+
+                # print(" classifier outputs:   mrcnn_bbox", mrcnn_bbox.shape, " class:", mrcnn_class.shape)
+
+                # print("feature maps: ", len(mrcnn_feature_maps))
+                # print("feature maps: ", mrcnn_feature_maps[0].shape)
+                # print("ROIs: ", len(rois))
+                # print("ROIs: ", rois[0].shape)
+
+                ## Create masks for detections
+                mrcnn_mask, roi_features = self.mask(mrcnn_feature_maps, rois, n_targets_per_sample)
+
+                ## Create depth for detections
+                if self.config.PREDICT_DEPTH:
+                    mrcnn_depth, local_feats = self.depthmask(mrcnn_feature_maps, rois, n_targets_per_sample)
+                else:
+                    mrcnn_depth = Variable(torch.FloatTensor()).cuda()
+
+                ## Feature modulation to learn shifting.
+                # global feats: [1, 64, 240, 320]
+                #    -> interpolate back to shape 320, 320
+                #
+                x = torch.nn.functional.interpolate(global_feats, size=(240, 320), mode='bilinear')
+                zeros = torch.zeros((len(x), 64, 40, 320)).cuda()
+                global_feats = torch.cat([zeros, x, zeros], dim=2)
+                local_feats = local_feats.unsqueeze(0)
+
+                #print("Rois shape before combining: ", rois.shape)
+                roi_feats_all = build_roi_features(rois, local_feats, [320, 320])
+
+                if self.config.GPU_COUNT:
+                    roi_feats_all = roi_feats_all.cuda()
+                    global_feats = global_feats.cuda()
+
+                final_dep = self.depth_ref(roi_feats_all, global_feats)
+                final_dep = final_dep.squeeze(1)
+
+                #print("depth: ", final_dep.device)
+
+                # normal estimation part removed.
+                mrcnn_normal = Variable(torch.FloatTensor()).cuda()
+
+            #print("Predict is over, return! ")
+            # instead of global_depth, return final_dep
+            return [rpn_class_logits, rpn_bbox, target_class_ids, mrcnn_class_logits, target_deltas, mrcnn_bbox,
+                    target_mask, mrcnn_mask, rois, target_depth, mrcnn_depth, target_normals, mrcnn_normal,
+                    final_dep, n_targets_per_sample]
 
     ## Scaled roi prediction instead of shifting
     def predict2(self, input, mode, use_nms=1, use_refinement=False, return_feature_map=False):
@@ -2763,6 +3231,7 @@ class MaskDepthRCNN(nn.Module):
                 # print("ROIs: ", rois[0].shape)
 
                 ## Create masks for detections
+
                 mrcnn_mask, roi_features = self.mask(mrcnn_feature_maps, rois)
 
                 ## Create depth for detections

@@ -367,10 +367,10 @@ def apply_box_deltas(boxes, deltas):
     #print("height, weight, center: ", height, width, center_y, center_x)
     # print("Applying box deltas: ", "h, w: ", height.shape, width.shape, "boxes", boxes.shape, "deltas:", deltas.shape)
     # Apply deltas
-    center_y += deltas[..., 0] * height
-    center_x += deltas[..., 1] * width
-    height *= torch.exp(deltas[..., 2])
-    width *= torch.exp(deltas[..., 3])
+    center_y = center_y + (deltas[..., 0] * height)
+    center_x = center_x + (deltas[..., 1] * width)
+    height = torch.exp(deltas[..., 2]) * height
+    width = torch.exp(deltas[..., 3]) * width
     # Convert back to y1, x1, y2, x2
     y1 = center_y - 0.5 * height
     x1 = center_x - 0.5 * width
@@ -897,9 +897,9 @@ def pyramid_roi_align(inputs, pool_size, image_shape, n_boxes_per_sample):
         ## Stop gradient propogation to ROI proposals
         level_boxes = level_boxes.detach()
 
-        print("feats: ", feature_maps[i].shape)
-        print("level boxes: ", level_boxes.shape)
-        print("level_sample_indices: ", level_sample_indices.shape)
+        #print("feats: ", feature_maps[i].shape)
+        #print("level boxes: ", level_boxes.shape)
+        #print("level_sample_indices: ", level_sample_indices.shape)
         ## Crop and Resize
         ## From Mask R-CNN paper: "We sample four regular locations, so
         ## that we can evaluate either max or average pooling. In fact,
@@ -912,7 +912,7 @@ def pyramid_roi_align(inputs, pool_size, image_shape, n_boxes_per_sample):
 
         # print(" pooling layer: ", i, " box size: ", ind.shape, " feature map: ", feature_maps[i].shape)
         pooled_features = CropAndResizeFunction(pool_size, pool_size, 0)(feature_maps[i], level_boxes, level_sample_indices)
-        print(" cropped feature: ", pooled_features.shape)
+        #print(" cropped feature: ", pooled_features.shape)
         pooled.append(pooled_features)
 
     # print(" pooled: ", pooled[0].shape, pooled[1].shape, pooled[2].shape)
@@ -1394,6 +1394,7 @@ def detection_layer_(config, rois, mrcnn_class, mrcnn_bbox, image_meta, return_i
 
     return refine_detections_(rois, mrcnn_class[0], mrcnn_bbox[0], window, config,
                               return_indices=return_indices, use_nms=use_nms, one_hot=one_hot)
+
 # batch version of detection layer for inference
 def batch_detection_layer_(config, rois, mrcnn_class, mrcnn_bbox, image_metas, return_indices=False, use_nms=1, one_hot=True):
 
@@ -1810,7 +1811,7 @@ class Depth(nn.Module):
             x = torch.nn.functional.interpolate(x, size=(640, 640), mode='bilinear')
             pass
 
-        # print(" Normal after interpolate ", x.shape, " crop? ", self.crop)
+        print(" Normal after interpolate ", x.shape, " crop? ", self.crop)
 
         return x
 
