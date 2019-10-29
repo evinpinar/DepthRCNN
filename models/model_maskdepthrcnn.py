@@ -2103,6 +2103,18 @@ class DepthRefine(nn.Module):
         comb_feats = torch.cat([roi_feats_all, global_feats], dim=1)
         a = self.conv1_1(comb_feats)
         a = self.conv1_2(a)
+        x = a * roi_feats_all
+        y = (1 - a) * global_feats
+        final_feat = x + y
+        penund_feat = self.deconv(final_feat)
+        final_depth = self.depth_pred(penund_feat)
+
+        return final_depth
+
+    def forward_original(self, roi_feats_all, global_feats):
+        comb_feats = torch.cat([roi_feats_all, global_feats], dim=1)
+        a = self.conv1_1(comb_feats)
+        a = self.conv1_2(a)
         b = self.conv2_1(comb_feats)
         b = self.conv2_2(b)
         x = a * roi_feats_all
@@ -2586,8 +2598,8 @@ class MaskDepthRCNN(nn.Module):
 
         ## Run object detection
         #print("molded images shape:", molded_images.shape)
-        #detections, mrcnn_mask, mrcnn_depth, mrcnn_normals, global_depth = self.predict3([molded_images, image_metas], mode='inference')
-        detections, mrcnn_mask, mrcnn_depth, mrcnn_normals, global_depth = self.predict([molded_images, image_metas], mode='inference')
+        detections, mrcnn_mask, mrcnn_depth, mrcnn_normals, global_depth = self.predict3([molded_images, image_metas], mode='inference')
+        #detections, mrcnn_mask, mrcnn_depth, mrcnn_normals, global_depth = self.predict([molded_images, image_metas], mode='inference')
 
         if len(detections[0]) == 0:
             return [{'rois': [], 'class_ids': [], 'scores': [], 'masks': [], 'parameters': []}]

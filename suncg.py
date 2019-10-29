@@ -114,6 +114,7 @@ class SuncgDataset(utils.Dataset):
             mask_file += 'val/'
 
         split = [int(val[:-1]) for val in split]
+        print(len(split))
 
         for i in split:
             try:
@@ -129,9 +130,9 @@ class SuncgDataset(utils.Dataset):
                 depth_path = suncg_data + '/depth/' + str(i) + '.png'
                 #depth_path = os.path.join(dataset_dir, depth_file_name)
 
-                mask_path = mask_file + str(i) + '.npy'
+                mask_path = mask_file + str(i) + '_'
 
-                if os.path.exists(mask_path) and os.path.exists(depth_path):
+                if os.path.exists(depth_path):
                     self.add_image(
                         "suncg",
                         image_id=i,  # use file number
@@ -142,7 +143,7 @@ class SuncgDataset(utils.Dataset):
                         class_ids=class_ids)
 
             except:
-                #print("Cannot read data ")
+                print("Cannot read data ")
                 continue
 
 
@@ -160,7 +161,14 @@ class SuncgDataset(utils.Dataset):
         class_ids = info['class_ids']
 
         mask_path = info["mask_path"]
-        masks = np.load(mask_path)
+        width, height = 480, 640
+        masks = np.zeros([len(class_ids), width, height])
+
+        for i in range(len(class_ids)):
+            mask_path_obj = mask_path + str(i) + ".png"
+            mask = skimage.io.imread(mask_path_obj)
+            masks[i] = mask
+
         masks = masks.transpose([1, 2, 0])
 
         # Return mask, and array of class IDs of each instance. Since we have

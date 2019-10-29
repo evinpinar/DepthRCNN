@@ -2219,7 +2219,14 @@ def load_image_gt(dataset, config, image_id, augment=False, augmentation=None,
         max_dim=config.IMAGE_MAX_DIM,
         mode=config.IMAGE_RESIZE_MODE)
     mask = utils.resize_mask(mask, scale, padding, crop)
-    depth = utils.resize_depth(depth, scale, padding, crop)
+
+    #depth = utils.resize_depth(depth, scale, padding, crop)
+    depth, _, _, _, _ = resize_depth_image(
+        depth,
+        min_dim=config.IMAGE_MIN_DIM,
+        min_scale=config.IMAGE_MIN_SCALE,
+        max_dim=config.IMAGE_MAX_DIM,
+        mode=config.IMAGE_RESIZE_MODE)
 
     if config.PREDICT_PLANE or config.PREDICT_NORMAL:
         plane = dataset.load_normals(image_id)
