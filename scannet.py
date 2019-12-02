@@ -104,18 +104,31 @@ class ScannetDataset(utils.Dataset):
 
         scannet_data = '/home/orneke/SCANNET/'
 
+
         if subset == "train":
-            scannet_data = scannet_data + 'scannet_frames_25k/'
-        elif subset == 'val' or subset == 'test':
-            scannet_data = scannet_data + 'scannet_frames_test/'
+            file1 = open(scannet_data + 'scannetv1_train.txt', "r")
+            scenes = file1.readlines()
+        elif subset == 'val':
+            file1 = open(scannet_data + 'scannetv1_val.txt', "r")
+            scenes = file1.readlines()
+        elif subset == 'test':
+            file1 = open(scannet_data + 'scannetv1_test.txt', "r")
+            scenes = file1.readlines()
 
-        scenes = []
-        for f_name in os.listdir(scannet_data):
-            if f_name.startswith('scene'):
-                dir_name = scannet_data + f_name + '/'
-                scenes.append(dir_name)
+        scannet_data = scannet_data + 'scannet_frames_25k/'
+        scenes = [scannet_data + val.strip('\n') + "/" for val in scenes]
+        # print(len(scenes))
 
-        print(len(scenes))
+        #if subset == "train":
+        #    scannet_data = scannet_data + 'scannet_frames_25k/'
+        #elif subset == 'val' or subset == 'test':
+        #    scannet_data = scannet_data + 'scannet_frames_test/'
+        #scenes = []
+        #for f_name in os.listdir(scannet_data):
+        #    if f_name.startswith('scene'):
+        #        dir_name = scannet_data + f_name + '/'
+        #        scenes.append(dir_name)
+        #print(len(scenes))
 
         i = 0
         for s in scenes:

@@ -575,4 +575,18 @@ def plot_loss(loss, val_loss, save=True, log_dir=None):
         plt.show(block=False)
         plt.pause(0.1)
 
+    plt.figure("chamfer_loss")
+    plt.gcf().clear()
+    plt.plot(loss[:, 9], label='train')
+    plt.plot(val_loss[:, 9], label='valid')
+    plt.xlabel('epoch')
+    plt.ylabel('loss')
+    plt.legend()
+    if save:
+        save_path = os.path.join(log_dir, "chamfer_loss.png")
+        plt.savefig(save_path)
+    else:
+        plt.show(block=False)
+        plt.pause(0.1)
+
 

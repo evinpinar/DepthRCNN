@@ -5,7 +5,8 @@ import scipy.io
 import h5py
 import cv2
 
-from config_original import Config
+#from config_original import Config
+from config import Config
 import utils_original as utils
 from torch.utils.data import Dataset
 from scipy.ndimage.filters import gaussian_filter

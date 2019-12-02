@@ -1777,31 +1777,31 @@ class Depth(nn.Module):
                 feature_maps[c] = feature_maps[c][:, :, padding * pow(2, c - 2):-padding * pow(2, c - 2)]
                 continue
             pass
-        print("FMap 0: ", feature_maps[0].shape)
+        # print("FMap 0: ", feature_maps[0].shape)
         x = self.conv1(feature_maps[0])
-        print("first conv of feature map: ", x.shape)
+        # print("first conv of feature map: ", x.shape)
         x = self.deconv1(x)
-        print("deconv conv: ", x.shape)
+        # print("deconv conv: ", x.shape)
         y = self.conv2(feature_maps[1])
-        print("conv of fmap 1:", y.shape)
+        # print("conv of fmap 1:", y.shape)
         x = torch.cat([y, x], dim=1)
-        print("concatenated: ", x.shape)
+        # print("concatenated: ", x.shape)
         x = self.deconv2(x)
-        print("Deconv again: ", x.shape)
+        # print("Deconv again: ", x.shape)
         if self.crop:
             x = x[:, :, 5:35]
         y = self.conv3(feature_maps[2])
         # print("conv3 of map 2: ", y.shape)
         # print("vector together: ", (y, x).shape)
         x = torch.cat([y, x], dim=1)
-        print("concated: ", x.shape)
+        # print("concated: ", x.shape)
         x = self.deconv3(x)
-        print("deconv3: ", x.shape)
+        # print("deconv3: ", x.shape)
         x = self.deconv4(torch.cat([self.conv4(feature_maps[3]), x], dim=1))
         x = self.deconv5(torch.cat([self.conv5(feature_maps[4]), x], dim=1))
-        print(" Normal before last conv ", x.shape)
+        # print(" Normal before last conv ", x.shape)
         x = self.depth_pred(x)
-        print(" Normal after last conv ", x.shape)
+        # print(" Normal after last conv ", x.shape)
 
         if self.crop:
             x = torch.nn.functional.interpolate(x, size=(480, 640), mode='bilinear')
@@ -1811,7 +1811,7 @@ class Depth(nn.Module):
             x = torch.nn.functional.interpolate(x, size=(640, 640), mode='bilinear')
             pass
 
-        print(" Normal after interpolate ", x.shape, " crop? ", self.crop)
+        # print(" Normal after interpolate ", x.shape, " crop? ", self.crop)
 
         return x
 
@@ -2131,11 +2131,11 @@ def compute_depth_loss(target_depth, pred_depth, config, edges = None):
     return depth_loss
 
 
-def compute_plane_loss(target_plane, pred_plane, config):
+def compute_normal_loss(target_normal, pred_normal, config):
 
     #print(target_plane.shape, pred_plane.shape)
-    pred_n = pred_plane[ :, 80:560]
-    target_n = target_plane[0, :, 80:560]
+    pred_n = target_normal[:, 80:560]
+    target_n = pred_normal[0, :, 80:560]
 
     #pred_n = pred_n.contiguous().view(-1, 3)
     #target_n = target_n.contiguous().view(-1, 3)
@@ -2143,7 +2143,7 @@ def compute_plane_loss(target_plane, pred_plane, config):
     #loss = F.mse_loss(pred_n, target_n)
     ## L2_Mask_Loss is also possible!
 
-    loss = l2LossMask(pred_n, target_n,
+    loss = l1LossMask(pred_n, target_n,
                       (target_n > 0).float())
 
     return loss
@@ -2159,8 +2159,8 @@ def compute_grad_depth_loss(target_depth, pred_depth):
 
 
 def compute_losses(config, rpn_match, rpn_bbox, rpn_class_logits, rpn_pred_bbox, target_class_ids, mrcnn_class_logits,
-                   target_deltas, mrcnn_bbox, target_mask, mrcnn_mask, target_depth, pred_depth, target_plane,
-                   pred_plane, edges):
+                   target_deltas, mrcnn_bbox, target_mask, mrcnn_mask, target_depth, pred_depth, target_normal,
+                   pred_normal, edges):
     rpn_class_loss = compute_rpn_class_loss(rpn_match, rpn_class_logits)
     rpn_bbox_loss = compute_rpn_bbox_loss(rpn_bbox, rpn_match, rpn_pred_bbox)
     mrcnn_class_loss = compute_mrcnn_class_loss(target_class_ids, mrcnn_class_logits)
@@ -2171,11 +2171,11 @@ def compute_losses(config, rpn_match, rpn_bbox, rpn_class_logits, rpn_pred_bbox,
     if config.PREDICT_DEPTH:
         depth_loss = compute_depth_loss(target_depth, pred_depth, config)
 
-    plane_loss = torch.tensor([0], dtype=torch.float32)
+    normal_loss = torch.tensor([0], dtype=torch.float32)
     if config.PREDICT_PLANE:
-        plane_loss = compute_plane_loss(target_plane, pred_plane, config)
+        normal_loss = compute_normal_loss(target_normal, pred_normal, config)
 
-    return [rpn_class_loss, rpn_bbox_loss, mrcnn_class_loss, mrcnn_bbox_loss, mrcnn_mask_loss, depth_loss, plane_loss]
+    return [rpn_class_loss, rpn_bbox_loss, mrcnn_class_loss, mrcnn_bbox_loss, mrcnn_mask_loss, depth_loss, normal_loss]
 
 
 ############################################################
@@ -2935,7 +2935,6 @@ def data_generator_onlydepth(dataset, config, shuffle=True, augment=False, augme
     error_count = 0
     no_augmentation_sources = no_augmentation_sources or []
 
-    # Keras requires a generator to run indefinitely.
     while True:
         try:
             # Increment index to pick next image. Shuffle if at the start of an epoch.
@@ -2951,6 +2950,7 @@ def data_generator_onlydepth(dataset, config, shuffle=True, augment=False, augme
                 image, image_meta, gt_class_ids, gt_boxes, gt_masks, gt_depth, gt_normal = \
                     load_image_gt(dataset, config, image_id, augment=augment,
                                   use_mini_mask=False)
+
             else:
                 image, image_meta, gt_class_ids, gt_boxes, gt_masks, gt_depth, gt_normal = \
                     load_image_gt(dataset, config, image_id, augment=augment, augmentation=augmentation,
@@ -4011,7 +4011,7 @@ class DepthCNN(nn.Module):
         ## Bottom-up Layers
         ## Returns a list of the last layers of each stage, 5 in total.
         ## Don't create the thead (stage 5), so we pick the 4th item in the list.
-        resnet = ResNet("resnet50", stage5=True, numInputChannels=config.NUM_INPUT_CHANNELS)
+        resnet = ResNet("resnet101", stage5=True, numInputChannels=config.NUM_INPUT_CHANNELS)
         C1, C2, C3, C4, C5 = resnet.stages()
 
         ## Top-down Layers
@@ -4259,7 +4259,7 @@ class DepthCNN(nn.Module):
 
         self.epoch = epochs
 
-    def train_model2(self, train_dataset, val_dataset, learning_rate, epochs, layers="all"):
+    def train_model2(self, train_dataset, val_dataset, learning_rate, epochs, layers="all", augmentation=None):
         """Train the model.
 		train_dataset, val_dataset: Training and validation Dataset objects.
 		learning_rate: The learning rate to train with
@@ -4294,8 +4294,8 @@ class DepthCNN(nn.Module):
             layers = layer_regex[layers]
 
         # Data generators
-        train_generator = data_generator_onlydepth(train_dataset, self.config, shuffle=True, augment=True, batch_size=1)
-        val_generator = data_generator_onlydepth(val_dataset, self.config, shuffle=True, augment=True, batch_size=1)
+        train_generator = data_generator_onlydepth(train_dataset, self.config, shuffle=True, augment=False, batch_size=6, augmentation=augmentation)
+        val_generator = data_generator_onlydepth(val_dataset, self.config, shuffle=True, augment=False, batch_size=6, augmentation=augmentation)
 
         # Optimizer object
         # Add L2 Regularization
@@ -4310,8 +4310,10 @@ class DepthCNN(nn.Module):
 
         for epoch in range(self.epoch + 1, epochs + 1):
             log("Epoch {}/{}.".format(epoch, epochs))
+            print("Epoch: ", epoch)
 
             # Training
+
             loss_depth = self.train_epoch(train_generator, optimizer, self.config.STEPS_PER_EPOCH)
 
             # Validation
@@ -4333,7 +4335,7 @@ class DepthCNN(nn.Module):
             visualize.plot_depth_loss(self.loss_history, self.val_loss_history, save=True, log_dir=self.log_dir)
 
             # Save model
-            if epoch % 25 == 0:
+            if epoch % 1 == 0:
                 torch.save(self.state_dict(), self.checkpoint_path.format(epoch))
 
         self.epoch = epochs
@@ -4485,7 +4487,7 @@ class DepthCNN(nn.Module):
                 loss = compute_depth_loss(gt_depths, pred_depth, self.config, edges[0])
 
                 # Progress
-                if step % 25 == 0:
+                if step % 100 == 0:
                     printProgressBar(step + 1, steps, prefix="\t{}/{}".format(step + 1, steps),
                                      suffix="Complete depth - loss: {:.5f} ".format(
                                          loss.data.cpu().item()), length=10)

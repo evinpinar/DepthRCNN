@@ -114,8 +114,8 @@ if __name__ == '__main__':
     #rgb = cv2.imread("/datawl/CSI/CSI_SVN/Kiras CSISmartCam3D/CSISmartScan3D_Daten/Daten_Testszenen/TUM/freiburg1/rgbd_dataset_freiburg1_xyz/rgb/1305031102.175304.png")
     #depth = cv2.imread("/datawl/CSI/CSI_SVN/Kiras CSISmartCam3D/CSISmartScan3D_Daten/Daten_Testszenen/TUM/freiburg1/rgbd_dataset_freiburg1_xyz/depth/1305031102.160407.png", cv2.CV_LOAD_IMAGE_UNCHANGED)
 
-    rgb_path = "./NYU0001.jpg"
-    depth_path = '/Users/evinpinar/Documents/Classes/THESIS/NYU_depth_v2_extractor/NYU0001.png'
+    rgb_path = "../scannet_rgb.jpg"
+    depth_path = "../scannet_depth_pred.jpg"
     print(os.path.exists(rgb_path))
     print(os.path.abspath(rgb_path))
     rgb = cv2.imread(rgb_path)
@@ -134,7 +134,8 @@ if __name__ == '__main__':
         #rgbU = cv2.undistort(rgb, K, distC)
     else:
         rgbU = rgb
-    points = []    
+    points = []
+    print("create points")
     for v in range(rgb.shape[0]):
         for u in range(rgb.shape[1]):
             color = rgbU[v,u,:]
@@ -143,7 +144,8 @@ if __name__ == '__main__':
             X = (u - centerX) * Z / fx
             Y = (v - centerY) * Z / fy
             points.append("%f %f %f %d %d %d 0\n"%(X,Y,Z,color[2],color[1],color[0]))
-    file = open("./test_new.ply","w")
+    print("points created: ", points.shape)
+    file = open("../scannet_pred.ply","w")
     file.write('''ply
 format ascii 1.0
 element vertex %d

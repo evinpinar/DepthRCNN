@@ -335,12 +335,19 @@ def rescale_depth_target(target_depth, gt_boxes, mini_shape):
 
 
 # Collect the rois and build a global map that fuses all roi features.
-def build_roi_features(rois, features, global_shape):
+def build_roi_features(rois, features, global_shape, mrcnn_mask, mrcnn_class_logits):
     '''
         rois: [1, N, 4]
         features: [1, 100, 64, 56, 56] # 64 or 38(num classes) or make it 1?
         global_shape: [1, 1, 320, 320] # shape of the combined features map
     '''
+
+    # Mask the feature layers
+    values, indices = mrcnn_class_logits[0].max(1)
+    masks_all = mrcnn_mask[:, 0, indices]
+    for i in range(features.shape[1]):
+        features[0, i] = masks_all[0, i] * features[0, i]
+
     n_rois = rois.shape[1]
     # global feat shape: [1, 1, H, W] ( H, W = 320)
     height, width = global_shape[0], global_shape[1]
@@ -355,11 +362,11 @@ def build_roi_features(rois, features, global_shape):
     #print("building roi features...")
     for i in range(n_rois):
         y1, x1, y2, x2 = scaled_rois[i]
-        roi_feat = features[0, i]  # features must be of shape [1, C, H, W] eg. H, W= 56, C=64
-        feat = F.interpolate(roi_feat.unsqueeze(0), (y2 - y1, x2 - x1))  # Reshape the feature to the global size
-        # Place the roi feature on the global map
-        full_feats[:, :, i, y1.long():y2.long(), x1.long():x2.long()] = feat
-
+        if y2-y1 >0 and x2-x1>0:
+            roi_feat = features[0, i]  # features must be of shape [1, C, H, W] eg. H, W= 56, C=64
+            feat = F.interpolate(roi_feat.unsqueeze(0), (y2 - y1, x2 - x1))  # Reshape the feature to the global size
+            # Place the roi feature on the global map
+            full_feats[:, :, i, y1.long():y2.long(), x1.long():x2.long()] = feat
     #print("built is done...", full_feats.shape)
     #print(full_feats.sum(dim=2).shape)
 
@@ -1112,9 +1119,9 @@ def detection_target_batch(proposals, gt_class_ids, gt_boxes, gt_masks, gt_depth
                 sample_deltas = sample_deltas.unsqueeze(0)
                 sample_masks = sample_masks.unsqueeze(0)
                 sample_depths = sample_depths.unsqueeze(0)
-            else:
-                print("no proposals: ", sample_gt_class_ids)
-                print(" --> gt masks: ",gt_masks.shape, " gt_class_ids: ", gt_class_ids.shape)
+             #else:
+             #    print("no proposals: ", sample_gt_class_ids)
+             #    print(" --> gt masks: ",gt_masks.shape, " gt_class_ids: ", gt_class_ids.shape)
         else:
             sample_rois = proposals.data.new()
             if has_rcnn_predictions:
@@ -2294,6 +2301,137 @@ def compute_mrcnn_plane_loss(config, target_normal, target_class_ids, pred_norma
 
     return loss
 
+def point_cloud(depth):
+    """Transform a depth image into a point cloud with one point for each
+    pixel in the image, using the camera transform for a camera
+    centred at cx, cy with field of view fx, fy.
+
+    depth is a 2-D ndarray with shape (rows, cols) containing
+    depths from 1 to 254 inclusive. The result is a 3-D array with
+    shape (rows, cols, 3). Pixels with invalid depth in the input have
+    NaN for the z-coordinate in the result.
+
+    """
+    #fx = 756.8
+    #fy = 756.0
+    #centerX = 492.8
+    #centerY = 270.4
+
+    fx = 1170.187988
+    fy = 1170.187988
+    centerX = 647.750000
+    centerY = 483.750000
+
+    # scalingFactor = 1
+    # doUndistort = True
+
+    # K = np.matrix([[fx, 0, centerX], [0, fy, centerY], [0, 0, 1]])
+    # distC = np.array([0.2624, -0.9531, -0.0054, 0.0026, 1.1633])
+    # newCameraMatrix = np.empty([3, 3])
+    # points = np.zeros([rgb.shape[0], rgb.shape[1], 3])
+
+    # start = timer()
+    rows, cols = depth.shape
+    c, r = np.meshgrid(np.arange(cols), np.arange(rows), sparse=True)
+    valid = (depth > 0) & (depth < 255)
+    z = np.where(valid, depth / 256.0, np.nan)
+    x = np.where(valid, z * (c - centerX) / fx, 0)
+    y = np.where(valid, z * (r - centerY) / fy, 0)
+    # end = timer()
+    # print("time takes: ", (end-start))
+    return np.dstack((x, y, z))
+
+def batch_pairwise_dist(x,y):
+    bs, num_points_x, points_dim = x.size()
+    _, num_points_y, _ = y.size()
+    xx = torch.bmm(x, x.transpose(2,1))
+    yy = torch.bmm(y, y.transpose(2,1))
+    zz = torch.bmm(x, y.transpose(2,1))
+    dtype = torch.cuda.LongTensor
+    diag_ind_x = torch.arange(0, num_points_x).type(dtype)
+    diag_ind_y = torch.arange(0, num_points_y).type(dtype)
+    rx = xx[:, diag_ind_x, diag_ind_x].unsqueeze(1).expand_as(zz.transpose(2,1))
+    ry = yy[:, diag_ind_y, diag_ind_y].unsqueeze(1).expand_as(zz)
+    P = (rx.transpose(2,1) + ry - 2*zz)
+    return P
+
+def batch_NN_loss(x, y):
+
+    # Set nan values to 0.
+    x[torch.isnan(x)] = 0
+    y[torch.isnan(y)] = 0
+
+    bs, num_points, points_dim = x.size()
+    dist1 = torch.sqrt(batch_pairwise_dist(x, y))
+    values1, indices1 = dist1.min(dim=2)
+
+    dist2 = torch.sqrt(batch_pairwise_dist(y, x))
+    values2, indices2 = dist2.min(dim=2)
+    a = torch.div(torch.sum(values1,1), num_points)
+    b = torch.div(torch.sum(values2,1), num_points)
+    sum = torch.div(torch.sum(a), bs) + torch.div(torch.sum(b), bs)
+
+    return sum
+
+def calculate_chamfer(gt_image, gt_depth, pred_depth, gt_masks, gt_boxes, gt_class_ids):
+    rgb = gt_image[0].cpu().numpy().transpose(1, 2, 0)
+    gt_depth = gt_depth[0].detach().cpu().numpy()
+    pred_depth = pred_depth[0].detach().cpu().numpy()
+
+    # print(rgb.shape)
+    # expand the masks to full size, take first ex_i of 100 masks
+    ex_i = torch.sum(gt_class_ids[0]!=0)
+    expanded_mask = utils.expand_mask(gt_boxes[0].cpu().numpy(), gt_masks[0, :ex_i].cpu().numpy().transpose(1, 2, 0),
+                                      rgb.shape)
+
+    # print("Calculate point cloud gt...")
+    # calculate the points from gt depth
+    points_gt = point_cloud(gt_depth)
+
+    # print("Calculate point cloud pred...")
+    # calculate the points from pred depth
+    points_pred = point_cloud(pred_depth)
+
+    #points_gt = points_gt.reshape(-1, points_gt.shape[-1])
+    #points_pred = points_pred.reshape(-1, points_pred.shape[-1])
+
+    loss_sum = 0
+
+    # print("Calculate chamfer loss...")
+    # calculate the chamfer distance between the masked points
+    for i in range(ex_i):
+        # print(i)
+        m = expanded_mask[:, :, i]
+        inds = np.where(m == True)
+
+        if len(inds[0]) == 0:
+            continue
+
+        # reduce the number of points: minimum of 2500 or 1/3rd of indices
+        num_inds = min(2500, len(inds[0]) // 3)
+        rand_inds = np.random.randint(len(inds[0]), size=num_inds)
+        inds = (inds[0][rand_inds], inds[1][rand_inds])
+
+        masked_points_gt = np.array(points_gt)[inds]
+        masked_points_pred = np.array(points_pred)[inds]
+
+        # add back batch dimension
+        if len(masked_points_gt) != 0:
+            masked_points_gt = torch.tensor(masked_points_gt).unsqueeze(0)
+            masked_points_pred = torch.tensor(masked_points_pred).unsqueeze(0)
+
+            # print("shapes: ", masked_points_gt.shape, masked_points_pred.shape)
+
+            # dist1, dist2, _, _ = distChamfer(masked_points_gt, masked_points_pred)
+            # loss_net = (torch.mean(dist1)) + (torch.mean(dist1))
+            loss_net = batch_NN_loss(masked_points_gt, masked_points_pred)
+            #print("loss: ", loss_net)
+            loss_sum += loss_net
+
+    #print("chamf loss ", loss_sum, loss_sum.dtype, " ex i:", ex_i)
+
+    return torch.tensor(loss_sum).float() / ex_i.float().data.cpu().item()
+    # return losses
 
 ## Loss function with maskrcnn_depth loss
 def compute_losses_(config, rpn_match, rpn_bbox, rpn_class_logits, rpn_pred_bbox, target_class_ids, mrcnn_class_logits,
@@ -2307,6 +2445,12 @@ def compute_losses_(config, rpn_match, rpn_bbox, rpn_class_logits, rpn_pred_bbox
 
     rpn_class_loss = compute_rpn_class_loss(rpn_match, rpn_class_logits)
     rpn_bbox_loss = compute_rpn_bbox_loss(rpn_bbox, rpn_match, rpn_pred_bbox)
+
+    if target_class_ids.dim() == 0:
+        # print("Target class zero dim! : ", target_class_ids)
+        #target_class_ids = target_class_ids.unsqueeze(0)
+        target_class_ids = torch.zeros(size=(0, 1))
+        # print("target class zero dimensional: ", target_class_ids.shape, target_class_ids, len(target_class_ids))
 
     mrcnn_class_loss = compute_mrcnn_class_loss(target_class_ids, mrcnn_class_logits)
     mrcnn_bbox_loss = compute_mrcnn_bbox_loss(target_deltas, target_class_ids, mrcnn_bbox)
@@ -2323,6 +2467,7 @@ def compute_losses_(config, rpn_match, rpn_bbox, rpn_class_logits, rpn_pred_bbox
     normal_loss = torch.tensor([0], dtype=torch.float32)
     if config.PREDICT_NORMAL:
         normal_loss = compute_mrcnn_plane_loss(config, target_normal, target_class_ids, pred_normal)
+
     return [rpn_class_loss, rpn_bbox_loss, mrcnn_class_loss, mrcnn_bbox_loss, mrcnn_mask_loss, depth_loss,
             normal_loss, global_depth_loss]
 
@@ -2582,8 +2727,10 @@ class MaskDepthRCNN(nn.Module):
         if mold_image:
             molded_images, image_metas, windows = self.mold_inputs(self.config, images)
         else:
-            molded_images = images
-            windows = [(0, 0, images.shape[1], images.shape[2]) for _ in range(len(images))]
+            molded_images = np.expand_dims(images[0], axis=0)
+            print(molded_images.shape)
+            #windows = [(0, 0, images.shape[1], images.shape[2]) for _ in range(len(images))]
+            windows = [(0, 0, images[0].shape[1], images[0].shape[2])]
             pass
 
         ## Convert images to torch tensor
@@ -2604,8 +2751,8 @@ class MaskDepthRCNN(nn.Module):
         if len(detections[0]) == 0:
             return [{'rois': [], 'class_ids': [], 'scores': [], 'masks': [], 'parameters': []}]
 
-        print("mrcnn mask shape: ", mrcnn_mask.shape)
-        print("detections: ", detections.shape)
+        # print("mrcnn mask shape: ", mrcnn_mask.shape)
+        # print("detections: ", detections.shape)
         ## Convert to numpy
         detections = detections.data.cpu().numpy()
         mrcnn_mask = mrcnn_mask.permute(0, 1, 3, 4, 2).data.cpu().numpy()
@@ -2620,8 +2767,8 @@ class MaskDepthRCNN(nn.Module):
                 self.unmold_detections(self.config, detections[i], mrcnn_mask[i],
                                        mrcnn_depth[i], mrcnn_normals[i], image.shape, windows[i])
 
-            print(" mask shape: ", mrcnn_mask.shape)
-            print(" unmolded mask shape: ", final_masks.shape)
+            # print(" mask shape: ", mrcnn_mask.shape)
+            # print(" unmolded mask shape: ", final_masks.shape)
 
             results.append({
                 "rois": final_rois,
@@ -2956,7 +3103,7 @@ class MaskDepthRCNN(nn.Module):
             local_feats = local_feats.unsqueeze(0)
 
             # print("Rois shape before combining: ", rois.shape)
-            roi_feats_all = build_roi_features(detection_boxes, local_feats, [320, 320])
+            roi_feats_all = build_roi_features(detection_boxes, local_feats, [320, 320], mrcnn_mask, mrcnn_class_logits)
 
             if self.config.GPU_COUNT:
                 roi_feats_all = roi_feats_all.cuda()
@@ -3021,6 +3168,7 @@ class MaskDepthRCNN(nn.Module):
                 mrcnn_mask = Variable(torch.FloatTensor())
                 mrcnn_depth = Variable(torch.FloatTensor())
                 mrcnn_normal = Variable(torch.FloatTensor())
+                final_dep = global_depth
                 if self.config.GPU_COUNT:
                     mrcnn_class_logits = mrcnn_class_logits.cuda()
                     mrcnn_class = mrcnn_class.cuda()
@@ -3028,6 +3176,7 @@ class MaskDepthRCNN(nn.Module):
                     mrcnn_mask = mrcnn_mask.cuda()
                     mrcnn_depth = mrcnn_depth.cuda()
                     mrcnn_normal = mrcnn_normal.cuda()
+                    final_dep = final_dep.cuda()
             else:
                 ## Network Heads
                 ## Proposal classifier and BBox regressor heads
@@ -3060,8 +3209,10 @@ class MaskDepthRCNN(nn.Module):
                 global_feats = torch.cat([zeros, x, zeros], dim=2)
                 local_feats = local_feats.unsqueeze(0)
 
+                # print(" n targets per sample: ", n_targets_per_sample)
+
                 #print("Rois shape before combining: ", rois.shape)
-                roi_feats_all = build_roi_features(rois, local_feats, [320, 320])
+                roi_feats_all = build_roi_features(rois, local_feats, [320, 320], mrcnn_mask, mrcnn_class_logits)
 
                 if self.config.GPU_COUNT:
                     roi_feats_all = roi_feats_all.cuda()
@@ -3342,22 +3493,22 @@ class MaskDepthRCNN(nn.Module):
             # Training
             print("Training!")
             loss, loss_rpn_class, loss_rpn_bbox, loss_mrcnn_class, loss_mrcnn_bbox, loss_mrcnn_mask, \
-            loss_depth, loss_normal, loss_glob_depth = self.train_epoch2(
+            loss_depth, loss_normal, loss_glob_depth, loss_chamfer = self.train_epoch2(
                 train_generator, optimizer, self.config.STEPS_PER_EPOCH, depth_weight, global_depth_weight)
 
             # Validation
             print("Validating!")
             val_loss, val_loss_rpn_class, val_loss_rpn_bbox, val_loss_mrcnn_class, val_loss_mrcnn_bbox, \
-            val_loss_mrcnn_mask, val_loss_depth, val_loss_normal, val_loss_glob_depth = 0, 0, 0, 0, 0, 0, 0, 0, 0
-            # self.valid_epoch(val_generator, self.config.VALIDATION_STEPS, depth_weight, global_depth_weight)
+            val_loss_mrcnn_mask, val_loss_depth, val_loss_normal, val_loss_glob_depth, val_loss_chamfer = \
+                self.valid_epoch(val_generator, self.config.VALIDATION_STEPS, depth_weight, global_depth_weight)
 
             # Statistics
             self.loss_history.append(
                 [loss, loss_rpn_class, loss_rpn_bbox, loss_mrcnn_class, loss_mrcnn_bbox, loss_mrcnn_mask,
-                 loss_depth, loss_normal, loss_glob_depth])
+                 loss_depth, loss_normal, loss_glob_depth, loss_chamfer])
             self.val_loss_history.append(
                 [val_loss, val_loss_rpn_class, val_loss_rpn_bbox, val_loss_mrcnn_class, val_loss_mrcnn_bbox,
-                 val_loss_mrcnn_mask, val_loss_depth, val_loss_normal, val_loss_glob_depth])
+                 val_loss_mrcnn_mask, val_loss_depth, val_loss_normal, val_loss_glob_depth, val_loss_chamfer])
             visualize.plot_loss(self.loss_history, self.val_loss_history, save=True, log_dir=self.log_dir)
 
             if not os.path.exists(self.log_dir):
@@ -3375,6 +3526,7 @@ class MaskDepthRCNN(nn.Module):
             writer.add_scalar('Train/MRCNN_Depth', loss_depth, epoch)
             writer.add_scalar('Train/Normal', loss_normal, epoch)
             writer.add_scalar('Train/Global_depth', loss_glob_depth, epoch)
+            writer.add_scalar('Train/Chamfer', loss_chamfer, epoch)
 
             writer.add_scalar('Val/Loss', val_loss, epoch)
             writer.add_scalar('Val/RPN_Class', val_loss_rpn_class, epoch)
@@ -3385,6 +3537,7 @@ class MaskDepthRCNN(nn.Module):
             writer.add_scalar('Val/MRCNN_Depth', val_loss_depth, epoch)
             writer.add_scalar('Val/Normal', val_loss_normal, epoch)
             writer.add_scalar('Val/Global_depth', val_loss_glob_depth, epoch)
+            writer.add_scalar('Val/Chamfer', val_loss_chamfer, epoch)
 
             # Save model
             if epoch % 2 == 0:
@@ -3644,7 +3797,7 @@ class MaskDepthRCNN(nn.Module):
         return loss_sum, loss_rpn_class_sum, loss_rpn_bbox_sum, loss_mrcnn_class_sum, loss_mrcnn_bbox_sum, \
                loss_mrcnn_mask_sum, loss_depth_sum, loss_normal_sum
 
-    ## This training method supports global depth prediction
+    ## This training method supports global depth prediction, feat modulation and geometric consensus
     def train_epoch2(self, datagenerator, optimizer, steps, depth_weight=1, normal_weight=0.001, global_depth_weight=1):
         batch_count = 0
         loss_sum = 0
@@ -3656,6 +3809,7 @@ class MaskDepthRCNN(nn.Module):
         loss_depth_sum = 0
         loss_normal_sum = 0
         loss_global_depth_sum = 0
+        loss_chamfer_sum = 0
         step = 0
 
         optimizer.zero_grad()
@@ -3690,6 +3844,8 @@ class MaskDepthRCNN(nn.Module):
             gt_normals = Variable(gt_normals)
             gt_depth = Variable(gt_depth)
 
+            #print("Data shapes: image: ",images.shape, " mrcnn masks: ", gt_masks.shape, " depth:", gt_depth.shape)
+
             # To GPU
             if self.config.GPU_COUNT:
                 images = images.cuda()
@@ -3708,26 +3864,41 @@ class MaskDepthRCNN(nn.Module):
             # Run object detection
             # print("     predicting... ")
             rpn_class_logits, rpn_pred_bbox, target_class_ids, mrcnn_class_logits, target_deltas, mrcnn_bbox, target_mask, mrcnn_mask, rois, target_depths, mrcnn_depths, target_normal, mrcnn_normal, global_depth, n_dets_per_sample = \
-                self.predict([images, image_metas, gt_class_ids, gt_boxes, gt_masks, gt_depths, gt_normals],
+                self.predict3([images, image_metas, gt_class_ids, gt_boxes, gt_masks, gt_depths, gt_normals],
                              mode='training')
 
+            #print("target shapes: masks:", target_mask.shape, " global depth: ", global_depth.shape, " n_dets: ", n_dets_per_sample)
+
+            #print("target depths: ", target_depths.shape, " preds: ", mrcnn_depths.shape, " gt depths: ", gt_depths.shape)
+
             # Compute losses
-            print("compute loss: ")
+            #print("compute loss: ")
             rpn_class_loss, rpn_bbox_loss, mrcnn_class_loss, mrcnn_bbox_loss, mrcnn_mask_loss, depth_loss, \
             normal_loss, global_depth_loss = compute_losses_(
                 self.config, rpn_match, rpn_bbox, rpn_class_logits, rpn_pred_bbox, target_class_ids, mrcnn_class_logits,
                 target_deltas, mrcnn_bbox, target_mask, mrcnn_mask, target_depths, mrcnn_depths, target_normal,
                 mrcnn_normal, gt_depth, global_depth, n_dets_per_sample)
 
+            chamfer_loss = torch.tensor([0], dtype=torch.float32)
+            if self.config.GEOMETRIC_LOSS:
+                chamfer_loss = calculate_chamfer(images, gt_depth, global_depth, gt_masks, gt_boxes, gt_class_ids)
+
             if self.config.GPU_COUNT:
                 depth_loss = depth_loss.cuda()
                 normal_loss = normal_loss.cuda()
+                global_depth_loss = global_depth_loss.cuda()
+                chamfer_loss = chamfer_loss.cuda()
+                mrcnn_mask_loss = mrcnn_mask_loss.cuda()
+                mrcnn_bbox_loss = mrcnn_bbox_loss.cuda()
+                mrcnn_class_loss = mrcnn_class_loss.cuda()
+                rpn_bbox_loss = rpn_bbox_loss.cuda()
+                rpn_class_loss = rpn_class_loss.cuda()
 
             loss = rpn_class_loss + rpn_bbox_loss + mrcnn_class_loss + mrcnn_bbox_loss + mrcnn_mask_loss \
-                   + depth_weight * depth_loss + normal_weight * normal_loss + global_depth_weight * global_depth_loss
+                   + depth_weight * depth_loss + normal_weight * normal_loss + global_depth_weight * global_depth_loss + chamfer_loss
 
             # Backpropagation
-            print("backprop:")
+            #print("backprop:")
             loss.backward()
             torch.nn.utils.clip_grad_norm_(self.parameters(), 5.0)
             if (batch_count % self.config.BATCH_SIZE) == 0:
@@ -3735,15 +3906,21 @@ class MaskDepthRCNN(nn.Module):
                 optimizer.zero_grad()
                 batch_count = 0
 
+            #print("global depth", global_depth_loss.data, global_depth_loss.dtype)
+            #print("chamfer", chamfer_loss, chamfer_loss.dtype)
+
             # Progress
-            if step % 1 == 0:
+            if step % 100 == 0:
                 printProgressBar(step + 1, steps, prefix="\t{}/{}".format(step + 1, steps),
-                                 suffix="Complete - loss: {:.5f} - rpn_class_loss: {:.5f} - rpn_bbox_loss: {:.5f} - mrcnn_class_loss: {:.5f} - mrcnn_bbox_loss: {:.5f} - mrcnn_mask_loss: {:.5f} - depth_loss: {:.5f} - normal_loss: {:.5f} - global depth loss: {:.5f}".format(
+                                 suffix="Complete - loss: {:.5f} - rpn_class_loss: {:.5f} - rpn_bbox_loss: {:.5f} - "
+                                        "mrcnn_class_loss: {:.5f} - mrcnn_bbox_loss: {:.5f} - mrcnn_mask_loss: {:.5f} "
+                                        "- depth_loss: {:.5f} - global depth loss: {:.5f} - chamfer_loss: {:.5f} "
+                                        "".format(
                                      loss.data.cpu().item(), rpn_class_loss.data.cpu().item(),
                                      rpn_bbox_loss.data.cpu().item(),
                                      mrcnn_class_loss.data.cpu().item(), mrcnn_bbox_loss.data.cpu().item(),
                                      mrcnn_mask_loss.data.cpu().item(), depth_loss.data.cpu().item(),
-                                     normal_loss.data.cpu().item(), global_depth_loss), length=10)
+                                     global_depth_loss.data.cpu().item(), chamfer_loss.data.cpu().item()), length=10)
 
             # print("     summing... ")
             # Statistics
@@ -3755,7 +3932,8 @@ class MaskDepthRCNN(nn.Module):
             loss_mrcnn_mask_sum += mrcnn_mask_loss.data.cpu().item() / steps
             loss_depth_sum += depth_loss.data.cpu().item() / steps
             loss_normal_sum += normal_loss.data.cpu().item() / steps
-            loss_global_depth_sum += global_depth_loss.cpu().item() / steps
+            loss_global_depth_sum += global_depth_loss.data.cpu().item() / steps
+            loss_chamfer_sum += chamfer_loss.data.cpu().item() / steps
 
             # Break after 'steps' steps
             if step == steps - 1:
@@ -3763,7 +3941,7 @@ class MaskDepthRCNN(nn.Module):
             step += 1
 
         return loss_sum, loss_rpn_class_sum, loss_rpn_bbox_sum, loss_mrcnn_class_sum, loss_mrcnn_bbox_sum, \
-               loss_mrcnn_mask_sum, loss_depth_sum, loss_normal_sum, loss_global_depth_sum
+               loss_mrcnn_mask_sum, loss_depth_sum, loss_normal_sum, loss_global_depth_sum, loss_chamfer_sum
 
     def valid_epoch(self, datagenerator, steps, depth_weight=1, normal_weight=0.001, global_depth_weight=1):
 
@@ -3777,6 +3955,7 @@ class MaskDepthRCNN(nn.Module):
         loss_depth_sum = 0
         loss_normal_sum = 0
         loss_global_depth_sum = 0
+        loss_chamfer_sum = 0
 
         with torch.no_grad():
             for inputs in datagenerator:
@@ -3818,8 +3997,8 @@ class MaskDepthRCNN(nn.Module):
                     gt_depth = gt_depth.cuda()
 
                 # Run object detection
-                rpn_class_logits, rpn_pred_bbox, target_class_ids, mrcnn_class_logits, target_deltas, mrcnn_bbox, target_mask, mrcnn_mask, rois, target_depths, mrcnn_depths, target_normals, mrcnn_normals, global_depth = \
-                    self.predict([images, image_metas, gt_class_ids, gt_boxes, gt_masks, gt_depths, gt_normals],
+                rpn_class_logits, rpn_pred_bbox, target_class_ids, mrcnn_class_logits, target_deltas, mrcnn_bbox, target_mask, mrcnn_mask, rois, target_depths, mrcnn_depths, target_normals, mrcnn_normals, global_depth, n_dets_per_sample = \
+                    self.predict3([images, image_metas, gt_class_ids, gt_boxes, gt_masks, gt_depths, gt_normals],
                                  mode='training')
 
                 if not target_class_ids.size():
@@ -3830,24 +4009,36 @@ class MaskDepthRCNN(nn.Module):
                 normal_loss, global_depth_loss = compute_losses_(
                     self.config, rpn_match, rpn_bbox, rpn_class_logits, rpn_pred_bbox, target_class_ids,
                     mrcnn_class_logits, target_deltas, mrcnn_bbox, target_mask, mrcnn_mask, target_depths, mrcnn_depths,
-                    target_normals, mrcnn_normals, gt_depth, global_depth)
+                    target_normals, mrcnn_normals, gt_depth, global_depth, n_dets_per_sample)
+
+                chamfer_loss = torch.tensor([0], dtype=torch.float32)
+                if self.config.GEOMETRIC_LOSS:
+                    chamfer_loss = calculate_chamfer(images, gt_depth, global_depth, gt_masks, gt_boxes, gt_class_ids)
+
                 if self.config.GPU_COUNT:
                     depth_loss = depth_loss.cuda()
                     normal_loss = normal_loss.cuda()
                     global_depth_loss = global_depth_loss.cuda()
+                    chamfer_loss = chamfer_loss.cuda()
+                    mrcnn_mask_loss = mrcnn_mask_loss.cuda()
+                    mrcnn_bbox_loss = mrcnn_bbox_loss.cuda()
+                    mrcnn_class_loss = mrcnn_class_loss.cuda()
+                    rpn_bbox_loss = rpn_bbox_loss.cuda()
+                    rpn_class_loss = rpn_class_loss.cuda()
 
                 loss = rpn_class_loss + rpn_bbox_loss + mrcnn_class_loss + mrcnn_bbox_loss + mrcnn_mask_loss \
-                       + depth_weight * depth_loss + normal_weight * normal_loss + global_depth_weight * global_depth_loss
+                       + depth_weight * depth_loss + normal_weight * normal_loss + global_depth_weight * global_depth_loss \
+                        + chamfer_loss
 
                 # Progress
                 if step % 100 == 0:
                     printProgressBar(step + 1, steps, prefix="\t{}/{}".format(step + 1, steps),
-                                     suffix="Complete - loss: {:.5f} - rpn_class_loss: {:.5f} - rpn_bbox_loss: {:.5f} - mrcnn_class_loss: {:.5f} - mrcnn_bbox_loss: {:.5f} - mrcnn_mask_loss: {:.5f} - depth_loss: {:.5f} - normal_loss: {:.5f} - global depth loss: {:.5f}".format(
+                                     suffix="Complete - loss: {:.5f} - rpn_class_loss: {:.5f} - rpn_bbox_loss: {:.5f} - mrcnn_class_loss: {:.5f} - mrcnn_bbox_loss: {:.5f} - mrcnn_mask_loss: {:.5f} - depth_loss: {:.5f} - global depth loss: {:.5f} - chamfer loss: {:.5f}".format(
                                          loss.data.cpu().item(), rpn_class_loss.data.cpu().item(),
                                          rpn_bbox_loss.data.cpu().item(),
                                          mrcnn_class_loss.data.cpu().item(), mrcnn_bbox_loss.data.cpu().item(),
                                          mrcnn_mask_loss.data.cpu().item(), depth_loss.data.cpu().item(),
-                                         normal_loss.data.cpu().item(), global_depth_loss.data.cpu().item()), length=10)
+                                         global_depth_loss.data.cpu().item(), chamfer_loss.data.cpu().item()), length=10)
 
                 # Statistics
                 loss_sum += loss.data.cpu().item() / steps
@@ -3859,6 +4050,7 @@ class MaskDepthRCNN(nn.Module):
                 loss_depth_sum += depth_loss.data.cpu().item() / steps
                 loss_normal_sum += normal_loss.data.cpu().item() / steps
                 loss_global_depth_sum += global_depth_loss.data.cpu().item() / steps
+                loss_chamfer_sum += chamfer_loss.data.cpu().item() / steps
 
                 # Break after 'steps' steps
                 if step == steps - 1:
@@ -3866,7 +4058,7 @@ class MaskDepthRCNN(nn.Module):
                 step += 1
 
         return loss_sum, loss_rpn_class_sum, loss_rpn_bbox_sum, loss_mrcnn_class_sum, loss_mrcnn_bbox_sum, \
-               loss_mrcnn_mask_sum, loss_depth_sum, loss_normal_sum, loss_global_depth_sum
+               loss_mrcnn_mask_sum, loss_depth_sum, loss_normal_sum, loss_global_depth_sum, loss_chamfer_sum
 
     def mold_inputs(self, config, images):
         """Takes a list of images and modifies them to the format expected
@@ -3929,6 +4121,8 @@ class MaskDepthRCNN(nn.Module):
         ## Detections array is padded with zeros. Find the first class_id == 0.
         zero_ix = np.where(detections[:, 4] == 0)[0]
         N = zero_ix[0] if zero_ix.shape[0] > 0 else detections.shape[0]
+
+        # print("unmolding this many detections:", N)
 
         ## Extract boxes, class_ids, scores, and class-specific masks
         boxes = detections[:N, :4]
