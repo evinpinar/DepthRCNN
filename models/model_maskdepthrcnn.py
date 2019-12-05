@@ -3636,7 +3636,7 @@ class MaskDepthRCNN(nn.Module):
             # Training
             print("Training!")
             loss, loss_rpn_class, loss_rpn_bbox, loss_mrcnn_class, loss_mrcnn_bbox, loss_mrcnn_mask, \
-            loss_depth, loss_normal, loss_glob_depth = self.train_epoch2(
+            loss_depth, loss_normal, loss_glob_depth, loss_chamfer = self.train_epoch2(
                 train_generator, optimizer, self.config.STEPS_PER_EPOCH, depth_weight, global_depth_weight)
 
             # Validation
@@ -3644,6 +3644,8 @@ class MaskDepthRCNN(nn.Module):
             val_loss, val_loss_rpn_class, val_loss_rpn_bbox, val_loss_mrcnn_class, val_loss_mrcnn_bbox, \
             val_loss_mrcnn_mask, val_loss_depth, val_loss_normal, val_loss_glob_depth = 0, 0, 0, 0, 0, 0, 0, 0, 0
             # self.valid_epoch(val_generator, self.config.VALIDATION_STEPS, depth_weight, global_depth_weight)
+
+
 
             # Statistics
             self.loss_history.append(

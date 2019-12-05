@@ -295,6 +295,9 @@ def resize_image(image, min_dim=None, max_dim=None, padding=False, interp='bilin
     window = (0, 0, h, w)
     scale = 1
 
+    if not padding:
+        image = cv2.resize(image, (max_dim, min_dim))
+        return image, window, scale, padding
     ## Scale?
     if min_dim:
         # Scale up but not down
@@ -344,6 +347,10 @@ def resize_depth(image, min_dim=None, max_dim=None, padding=False, interp='bilin
     window = (0, 0, h, w)
     scale = 1
 
+    if not padding:
+        image = cv2.resize(image, (max_dim, min_dim))
+        return image, window, scale, padding
+
     ## Scale?
     if min_dim:
         # Scale up but not down
@@ -356,7 +363,6 @@ def resize_depth(image, min_dim=None, max_dim=None, padding=False, interp='bilin
     ## Resize image and mask
     if scale != 1:
         image = cv2.resize(image, (int(image.shape[1] * scale), int(image.shape[0] * scale)))
-
     ## Need padding?
     if padding:
         ## Get new height and width

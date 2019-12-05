@@ -134,7 +134,7 @@ def train_depth(augmentation=None):
 	print('Total training time: ', end - start)
 
 
-def train_depthmask(augmentation=None, depth_weight=0):
+def train_depthrcnn(augmentation=None, depth_weight=0):
 	config = nyu.NYUConfig()
 	path_to_dataset = '../NYU_data'
 
@@ -218,27 +218,24 @@ def evaluate_solodepth():
 
 
 
-
 if __name__ == '__main__':
 	augmentation = iaa.Sometimes(.667, iaa.Sequential([
 		iaa.Fliplr(0.5),  # horizontal flips
 		# Small gaussian blur with random sigma between 0 and 0.25.
 		# But we only blur about 50% of all images.
-		iaa.Sometimes(0.5,
-					  iaa.GaussianBlur(sigma=(0, 0.25))
-					  ),
+		# iaa.Sometimes(0.5, iaa.GaussianBlur(sigma=(0, 0.25))),
 		# Strengthen or weaken the contrast in each image.
-		iaa.ContrastNormalization((0.75, 1.5)),
+		# iaa.ContrastNormalization((0.75, 1.5)),
 		# Add gaussian noise.
 		# For 50% of all images, we sample the noise once per pixel.
 		# For the other 50% of all images, we sample the noise per pixel AND
 		# channel. This can change the color (not only brightness) of the
 		# pixels.
-		iaa.AdditiveGaussianNoise(loc=0, scale=(0.0, 0.05 * 255)),
+		# iaa.AdditiveGaussianNoise(loc=0, scale=(0.0, 0.05 * 255)),
 		# Make some images brighter and some darker.
 		# In 20% of all cases, we sample the multiplier once per channel,
 		# which can end up changing the color of the images.
-		iaa.Multiply((0.8, 1.2)),
+		# iaa.Multiply((0.8, 1.2)),
 		# Apply affine transformations to each image.
 		# Scale/zoom them, translate/move them, rotate them and shear them.
 		# iaa.Affine(

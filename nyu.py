@@ -7,7 +7,8 @@ import cv2
 
 #from config_original import Config
 from config import Config
-import utils_original as utils
+import utils as utils
+import utils_original
 from torch.utils.data import Dataset
 from scipy.ndimage.filters import gaussian_filter
 
@@ -60,9 +61,10 @@ class NYUDataset(Dataset):
 		assert subset in ["train", "test", "val"]
 		image_ids = []
 		if subset is "train":
-			image_ids = np.load(path_to_dataset+'/train_split.npy')
+			image_ids = np.load(path_to_dataset + '/train_split_real.npy')
 		elif subset is "test":
-			image_ids = np.load(path_to_dataset+'/test_split.npy')
+			image_ids = np.load(path_to_dataset + '/test_split_real.npy')
+			self.transform = True
 		else:
 			image_ids = np.load(path_to_dataset + '/val_split.npy')
 
@@ -71,10 +73,19 @@ class NYUDataset(Dataset):
 		depths = []
 		labels = []
 		instances = []
+		if subset is "test":
+			for i in range(len(image_ids)):
+				ind = image_ids[i]
+				imgs.append(path_to_dataset + "/rgb_test_cropped/" + str(ind))
+				depths.append(path_to_dataset + "/depth_test_cropped/" + str(ind))
+		else:
+			for i in range(len(image_ids)):
+				ind = image_ids[i]
+				imgs.append(path_to_dataset + "/rgb_train_cropped/" + str(ind))
+				depths.append(path_to_dataset + "/depth_train_cropped/" + str(ind))
+
 		for i in range(len(image_ids)):
 			ind = image_ids[i]
-			imgs.append(path_to_dataset + "/rgb/" + str(ind))
-			depths.append(path_to_dataset + "/depth/" + str(ind))
 			labels.append(path_to_dataset + "/label40/" + str(ind))
 			instances.append(path_to_dataset + "/instance/" + str(ind))
 
@@ -113,10 +124,9 @@ class NYUDataset(Dataset):
 		# depth = depth / 4.0  # Normalize
 
 		# extract masks of instances [H, W, N] and labels [N]
-
-		label = np.load(self.labels[i] + ".npy")
-
-		instance = np.load(self.instances[i]+'.npy')
+		# NYU data crop shapes
+		label = np.load(self.labels[i] + ".npy")[44:471, 40:601]
+		instance = np.load(self.instances[i]+'.npy')[44:471, 40:601]
 		masks, class_ids = getInstanceMasks(label, instance)
 
 		image = np.load(self.images[i]+'.npy')
@@ -125,8 +135,11 @@ class NYUDataset(Dataset):
 		#print(class_ids.shape)
 
 		#print("Loading ground truths...")
+		#print("image and mask shapes before; ", image.shape, masks.shape)
 		image, image_metas, gt_class_ids, gt_boxes, gt_masks, depth = load_image_gt(self.config, i, image, depth, masks,
 																					class_ids, augmentation=self.augmentation)
+
+		#print("image, boxes, depth, mask:", image.shape, gt_boxes.shape, depth.shape, gt_masks.shape)
 
 		## RPN Targets
 		#print("Loading RPN targets...")
@@ -143,7 +156,7 @@ class NYUDataset(Dataset):
 		rpn_match = rpn_match[:, np.newaxis]
 		image = utils.mold_image(image.astype(np.float32), self.config)
 
-		depth = np.concatenate([np.zeros((80, 640)), depth, np.zeros((80, 640))], axis=0)
+		#depth = np.concatenate([np.zeros((80, 640)), depth, np.zeros((80, 640))], axis=0)
 		#segmentation = np.concatenate([np.full((80, 640), fill_value=-1, dtype=np.int32), label,
 									   #np.full((80, 640), fill_value=-1, dtype=np.int32)], axis=0)
 
@@ -217,27 +230,22 @@ class NYUDepthDataset(Dataset):
 		thick_edges = cv2.dilate(edges, kernel, iterations=1)
 		thick_edges[np.where(thick_edges == 255)] = 1
 
-
 		#if self.transform:
 		#	image, depth = self.transform_test(image, depth)
 
-
-		image, window, scale, padding = utils.resize_image(
+		image, window, scale, padding = utils_original.resize_image(
 			image,
-			min_dim=self.config.IMAGE_MAX_DIM,
+			min_dim=self.config.IMAGE_MIN_DIM,
 			max_dim=self.config.IMAGE_MAX_DIM,
 			padding=self.config.IMAGE_PADDING)
-
-
-		depth, window, scale, padding = utils.resize_depth(
+		depth, _, _, _ = utils_original.resize_depth(
 			depth,
-			min_dim=self.config.IMAGE_MAX_DIM,
+			min_dim=self.config.IMAGE_MIN_DIM,
 			max_dim=self.config.IMAGE_MAX_DIM,
 			padding=self.config.IMAGE_PADDING)
-
-		thick_edges, window, scale, padding = utils.resize_depth(
+		thick_edges, _, _, _ = utils_original.resize_depth(
 			thick_edges,
-			min_dim=self.config.IMAGE_MAX_DIM,
+			min_dim=self.config.IMAGE_MIN_DIM,
 			max_dim=self.config.IMAGE_MAX_DIM,
 			padding=self.config.IMAGE_PADDING)
 
@@ -270,25 +278,19 @@ class NYUDepthDataset(Dataset):
 			# Make augmenters deterministic to apply similarly to images and masks
 			det = self.augmentation.to_deterministic()
 			image = det.augment_image(image)
-			depth = det.augment_image(depth,
-									 hooks=imgaug.HooksImages(activator=hook))
+			depth = det.augment_image(depth, hooks=imgaug.HooksImages(activator=hook))
 			# Verify that shapes didn't change
 			assert image.shape == image_shape, "Augmentation shouldn't change image size"
 			assert depth.shape == depth_shape, "Augmentation shouldn't change depth size"
 
 
 		#depth = np.concatenate([np.zeros((80, 640)), depth, np.zeros((80, 640))], axis=0)
-
-
-
-
 		#blurred_img = gaussian_filter(image, sigma=7)
 
 		image = utils.mold_image(image.astype(np.float32), self.config)
 		image = image.transpose((2, 0, 1)).astype(np.float32)
 		depth = depth.astype(np.float32)
 		thick_edges = thick_edges.astype(np.float32)
-
 
 		#w = 448
 		#image = image[:, :w, :]
@@ -357,13 +359,15 @@ def load_image_gt(config, image_id, image, depth, mask, class_ids, augment=False
 	"""
 	## Load image and mask
 	shape = image.shape
-	image, window, scale, padding = utils.resize_image(
+	image, window, scale, padding, crop = utils.resize_image(
 		image,
-		min_dim=config.IMAGE_MAX_DIM,
+		min_dim=config.IMAGE_MIN_DIM,
+		min_scale=config.IMAGE_MIN_SCALE,
 		max_dim=config.IMAGE_MAX_DIM,
-		padding=config.IMAGE_PADDING)
+		mode=config.IMAGE_RESIZE_MODE)
 
-	mask = utils.resize_mask(mask, scale, padding)
+	mask = utils.resize_mask(mask, scale, padding, crop)
+	depth = utils.resize_depth(depth, scale, padding, crop)
 
 	## Random horizontal flips.
 	if augment:

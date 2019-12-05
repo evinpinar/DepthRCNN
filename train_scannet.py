@@ -202,8 +202,8 @@ def evaluate_roidepth():
 
     config.PREDICT_DEPTH = True
     config.PREDICT_GLOBAL_DEPTH = True
-    config.GEOMETRIC_LOSS = True
-    config.GRAD_LOSS = True
+    config.GEOMETRIC_LOSS = False
+    config.GRAD_LOSS = False
     depth_weight = 1
     config.USE_MINI_MASK = True
     config.PREDICT_PLANE = False
@@ -216,14 +216,14 @@ def evaluate_roidepth():
     model_maskdepth = MaskDepthRCNN(config)
     model_maskdepth.cuda()
 
-    checkpoint_dir = 'checkpoints/scannet20191103T1354/mask_depth_rcnn_scannet_0008.pth'
+    checkpoint_dir = 'checkpoints/scannet20191103T1354/mask_depth_rcnn_scannet_0010.pth'
     model_maskdepth.load_state_dict(torch.load(checkpoint_dir)['model_state_dict'])
 
     #test_datagenerator = modellib.data_generator(dataset_test, config, shuffle=False, augment=False, batch_size=1)
     test_generator = data_generator2(dataset_test, config, shuffle=False, augment=False, batch_size=1, augmentation=None)
     errors = np.zeros(8)
     step = 0
-    steps = 1000
+    steps = 5435
     while step < steps:
         inputs = next(test_generator)
         images = inputs[0]
@@ -270,7 +270,7 @@ def evaluate_roidepth():
         errors = errors + err
         step += 1
 
-        if step % 50 == 0:
+        if step % 100 == 0:
             print(" HERE: ", step)
 
         # Break after 'steps' steps
@@ -285,21 +285,27 @@ def evaluate_roidepth():
                                                                                                 e[4], e[5], e[6], e[7]))
 
 
-def evaluate_roidepth_nyu():
+def evaluate_solodepth():
 
-    print("Model evaluation on NYU test!")
+    print("Model evaluation on scannet test!")
 
-    config = nyu.NYUConfig()
-    path_to_dataset = '../NYU_data'
+    config = scannet.ScannetConfig()
 
-    dataset_test = nyu.NYUDepthDataset(path_to_dataset, 'test', config)
+    dataset_test = scannet.ScannetDataset()
+    dataset_test.load_scannet("test")
+    dataset_test.prepare()
+
+    print("--TEST--")
+    print("Image Count: {}".format(len(dataset_test.image_ids)))
+    print("Class Count: {}".format(dataset_test.num_classes))
+
 
     config.PREDICT_DEPTH = True
     config.PREDICT_GLOBAL_DEPTH = True
-    config.GEOMETRIC_LOSS = True
-    config.GRAD_LOSS = True
-    depth_weight = 1
-    config.USE_MINI_MASK = True
+    config.DEPTH_THRESHOLD = 0
+    config.GEOMETRIC_LOSS = False
+    config.GRAD_LOSS = False
+    config.USE_MINI_MASK = False
     config.PREDICT_PLANE = False
     config.PREDICT_NORMAL = False
     config.DEPTH_LOSS = 'L1'  # Options: L1, L2, BERHU
@@ -307,38 +313,45 @@ def evaluate_roidepth_nyu():
     config.MASK_SHAPE = [56, 56]
     config.MASK_POOL_SIZE = 28
 
-    model_maskdepth = MaskDepthRCNN(config)
-    model_maskdepth.cuda()
+    depth_model = DepthCNN(config)
+    depth_model.cuda()
 
-    checkpoint_dir = 'checkpoints/scannet20191103T1354/mask_depth_rcnn_scannet_0008.pth'
-    model_maskdepth.load_state_dict(torch.load(checkpoint_dir)['model_state_dict'])
+    checkpoint_dir = 'checkpoints/scannet20191127T2022/mask_rcnn_scannet_0010.pth'
+    depth_model.load_state_dict(torch.load(checkpoint_dir))
 
+    test_generator = data_generator_onlydepth(dataset_test, config, shuffle=False, augment=False, batch_size=1,
+                                              augmentation=None)
 
-    errors = np.zeros(8)
+    errors = []
     step = 0
+    steps = 5435
 
-    for i in range(len(dataset_test)):
+    while step < steps:
 
-        inputs = dataset_test[i]
-        image = inputs[0].transpose(1, 2, 0)
-        gt_depth = inputs[2]
+        inputs = next(test_generator)
+        images = inputs[0]
+        gt_depths = inputs[2]
 
+        images = Variable(images)
+        gt_depths = Variable(gt_depths)
 
-        result = model_maskdepth.detect([image])
+        images = images.cuda()
+        gt_depths = gt_depths.cuda()
 
-        global_depth = result[0]['glob_depth']
+        depth_np = depth_model.predict([images, gt_depths], mode='inference')
 
-        depth_pred = global_depth.detach().cpu().numpy()[0, 80:560, :]
-        depth_gt = gt_depth[80:560, :]
+        depth_pred = depth_np[0][0, 80:560, :].detach().cpu().numpy()
+        depth_gt = gt_depths[0, 80:560, :].cpu().numpy()
 
         err = evaluateDepths(depth_pred, depth_gt, printInfo=False)
-        errors = errors + err
+        errors.append(err)
         step += 1
 
         if step % 100 == 0:
             print(" HERE: ", step)
+            print(err)
 
-    e = errors / step
+    e = np.array(errors).mean(0).tolist()
     print("{:>10}, {:>10}, {:>10}, {:>10}, {:>10}, {:>10}, {:>10}, {:>10}".format('rel', 'rel_sqr', 'log_10', 'rmse',
                                                                                   'rmse_log', 'a1', 'a2', 'a3'))
     print(
@@ -387,9 +400,8 @@ if __name__ == '__main__':
 
         #train_roidepth(augmentation)
 
-        train_solodepth()
-
-        #evaluate_roidepth_nyu()
+        #train_solodepth()
+        evaluate_roidepth()
 
 
 

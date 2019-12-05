@@ -4214,9 +4214,9 @@ class DepthCNN(nn.Module):
 
         # Data generators
         # train_set = Dataset(train_dataset, self.config, augment=True)
-        train_generator = torch.utils.data.DataLoader(train_dataset, batch_size=1, shuffle=True, num_workers=4)
+        train_generator = torch.utils.data.DataLoader(train_dataset, batch_size=self.config.BATCH_SIZE, shuffle=True, num_workers=4)
         # val_set = Dataset(val_dataset, self.config, augment=True)
-        val_generator = torch.utils.data.DataLoader(val_dataset, batch_size=1, shuffle=True, num_workers=4)
+        val_generator = torch.utils.data.DataLoader(val_dataset, batch_size=self.config.BATCH_SIZE, shuffle=True, num_workers=4)
 
         # Optimizer object
         # Add L2 Regularization
