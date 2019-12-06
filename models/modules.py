@@ -127,134 +127,6 @@ def unmoldDetections(config, camera, detections, detection_masks, depth_np, unmo
         pass
     return detections, masks
 
-def planeXYZModule(ranges, planes, width, height, max_depth=10):
-    """Compute plane XYZ from plane parameters
-    ranges: K^(-1)x
-    planes: plane parameters
-    
-    Returns:
-    plane depthmaps
-    """
-    planeOffsets = torch.norm(planes, dim=-1, keepdim=True)
-    planeNormals = planes / torch.clamp(planeOffsets, min=1e-4)
-
-    normalXYZ = torch.matmul(ranges, planeNormals.transpose(0, 1))
-    normalXYZ[normalXYZ == 0] = 1e-4
-    planeDepths = planeOffsets.squeeze(-1) / normalXYZ
-    planeDepths = torch.clamp(planeDepths, min=0, max=max_depth)
-    return planeDepths.unsqueeze(-1) * ranges.unsqueeze(2)
-
-def planeDepthsModule(ranges, planes, width, height, max_depth=10):
-    """Compute coordinate maps from plane parameters
-    ranges: K^(-1)x
-    planes: plane parameters
-    
-    Returns:
-    plane coordinate maps
-    """
-    planeOffsets = torch.norm(planes, dim=-1, keepdim=True)
-    planeNormals = planes / torch.clamp(planeOffsets, min=1e-4)
-
-    normalXYZ = torch.matmul(ranges, planeNormals.transpose(0, 1))
-    normalXYZ[normalXYZ == 0] = 1e-4
-    planeDepths = planeOffsets.squeeze(-1) / normalXYZ
-    if max_depth > 0:
-        planeDepths = torch.clamp(planeDepths, min=0, max=max_depth)
-        pass
-    return planeDepths
-
-def warpModuleDepth(config, camera, depth_1, features_2, extrinsics_1, extrinsics_2, width, height):
-    """Warp one feature map to another view given camera pose and depth"""
-    padding = (width - height) // 2
-    XYZ_1 = config.getRanges(camera) * depth_1[padding:-padding].unsqueeze(-1)
-    warped_features, valid_mask = warpModuleXYZ(config, camera, XYZ_1.unsqueeze(2), features_2, extrinsics_1, extrinsics_2, width, height)
-    return warped_features.squeeze(0), valid_mask
-
-def warpModuleXYZ(config, camera, XYZ_1, features_2, extrinsics_1, extrinsics_2, width, height):
-    """Warp one feature map to another view given camera pose and XYZ"""
-    XYZ_shape = XYZ_1.shape
-    numPlanes = int(XYZ_1.shape[2])
-
-    XYZ_1 = XYZ_1.view((-1, 3))
-    XYZ_2 = torch.matmul(torch.matmul(torch.cat([XYZ_1, torch.ones((len(XYZ_1), 1)).cuda()], dim=-1), extrinsics_1.inverse().transpose(0, 1)), extrinsics_2.transpose(0, 1))
-    validMask = XYZ_2[:, 1] > 1e-4
-    U = (XYZ_2[:, 0] / torch.clamp(XYZ_2[:, 1], min=1e-4) * camera[0] + camera[2]) / camera[4] * 2 - 1
-    V = (-XYZ_2[:, 2] / torch.clamp(XYZ_2[:, 1], min=1e-4) * camera[1] + camera[3]) / camera[5] * 2 - 1
-
-    padding = (width - height) // 2
-    grids = torch.stack([U, V], dim=-1)
-
-    validMask = (validMask) & (U >= -1) & (U <= 1) & (V >= -1) & (V <= 1)
-    warped_features = F.grid_sample(features_2[:, :, padding:-padding], grids.unsqueeze(1).unsqueeze(0))
-    numFeatureChannels = int(features_2.shape[1])
-    warped_features = warped_features.view((numFeatureChannels, height, width, numPlanes)).transpose(2, 3).transpose(1, 2).transpose(0, 1).contiguous().view((-1, int(features_2.shape[1]), height, width))
-    zeros = torch.zeros((numPlanes, numFeatureChannels, (width - height) // 2, width)).cuda()
-    warped_features = torch.cat([zeros, warped_features, zeros], dim=2)
-    validMask = validMask.view((numPlanes, height, width))
-    validMask = torch.cat([zeros[:, 1], validMask.float(), zeros[:, 1]], dim=1)
-    return warped_features, validMask
-
-
-def calcXYZModule(config, camera, detections, masks, depth_np, return_individual=False, debug_type=0):
-    """Compute a global coordinate map from plane detections"""
-    ranges = config.getRanges(camera)
-    ranges_ori = ranges
-    zeros = torch.zeros(3, (config.IMAGE_MAX_DIM - config.IMAGE_MIN_DIM) // 2, config.IMAGE_MAX_DIM).cuda()        
-    ranges = torch.cat([zeros, ranges.transpose(1, 2).transpose(0, 1), zeros], dim=1)
-    XYZ_np = ranges * depth_np
-
-    if len(detections) == 0:
-        detection_mask = torch.zeros((config.IMAGE_MAX_DIM, config.IMAGE_MAX_DIM)).cuda()
-        if return_individual:
-            return XYZ_np, detection_mask, []
-        else:
-            return XYZ_np, detection_mask
-        pass
-    
-    plane_parameters = detections[:, 6:9]
-    
-    XYZ = torch.ones((3, config.IMAGE_MAX_DIM, config.IMAGE_MAX_DIM)).cuda() * 10
-    depthMask = torch.zeros((config.IMAGE_MAX_DIM, config.IMAGE_MAX_DIM)).cuda()
-    planeXYZ = planeXYZModule(ranges_ori, plane_parameters, width=config.IMAGE_MAX_DIM, height=config.IMAGE_MIN_DIM)
-    planeXYZ = planeXYZ.transpose(2, 3).transpose(1, 2).transpose(0, 1)
-    zeros = torch.zeros(3, (config.IMAGE_MAX_DIM - config.IMAGE_MIN_DIM) // 2, config.IMAGE_MAX_DIM, int(planeXYZ.shape[-1])).cuda()
-    planeXYZ = torch.cat([zeros, planeXYZ, zeros], dim=1)
-
-    one_hot = True    
-    if one_hot:
-        for detectionIndex in range(len(detections)):
-            mask = masks[detectionIndex]
-            with torch.no_grad():
-                mask_binary = torch.round(mask)
-                pass
-            if config.FITTING_TYPE >= 2:
-                if (torch.norm(planeXYZ[:, :, :, detectionIndex] - XYZ_np, dim=0) * mask_binary).sum() / torch.clamp(mask_binary.sum(), min=1e-4) > 0.5:
-                    mask_binary = torch.zeros(mask_binary.shape).cuda()
-                    pass
-                pass
-            mask_binary = mask_binary * (planeXYZ[1, :, :, detectionIndex] < XYZ[1]).float()
-            XYZ = planeXYZ[:, :, :, detectionIndex] * mask_binary + XYZ * (1 - mask_binary)
-            depthMask = torch.max(depthMask, mask)
-            continue
-        XYZ = XYZ * torch.round(depthMask) + XYZ_np * (1 - torch.round(depthMask))
-    else:
-        background_mask = torch.clamp(1 - masks.sum(0, keepdim=True), min=0)
-        all_masks = torch.cat([background_mask, masks], dim=0)
-        all_XYZ = torch.cat([XYZ_np.unsqueeze(-1), planeXYZ], dim=-1)
-        XYZ = (all_XYZ.transpose(2, 3).transpose(1, 2) * all_masks).sum(1)
-        depthMask = torch.ones(depthMask.shape).cuda()
-        pass
-
-    if debug_type == 2:
-        XYZ = XYZ_np
-        pass
-
-    if return_individual:
-        return XYZ, depthMask, planeXYZ.transpose(2, 3).transpose(1, 2).transpose(0, 1)
-    return XYZ, depthMask
-
-
-
 class ConvBlock(torch.nn.Module):
     """The block consists of a convolution layer, an optional batch normalization layer, and a ReLU layer"""
     def __init__(self, in_planes, out_planes, kernel_size=1, stride=1, padding=0, output_padding=0, mode='conv', use_bn=True):
@@ -298,7 +170,6 @@ class LinearBlock(torch.nn.Module):
 
     def forward(self, inp):
         return self.relu(self.linear(inp))       
-
 
 def l2NormLossMask(pred, gt, mask, dim):
     """L2  loss with a mask"""
@@ -353,81 +224,182 @@ def imgrad_yx(img):
     grad_y, grad_x = imgrad(img)
     return torch.cat((grad_y.view(N,C,-1), grad_x.view(N,C,-1)), dim=1)
 
-class PlaneToDepth(torch.nn.Module):
-    def __init__(self, normalized_K = True, normalized_flow = True, inverse_depth = True, W = 64, H = 48):
 
-        super(PlaneToDepth, self).__init__()
+####### 3D Reconstruction Modules
 
-        self.normalized_K = normalized_K
-        self.normalized_flow = normalized_flow
-        self.inverse_depth = inverse_depth
+from chamfer_distance import ChamferDistance
+chamfer_dist = ChamferDistance()
 
-        with torch.no_grad():
-            self.URANGE = ((torch.arange(W).float() + 0.5) / W).cuda().view((1, -1)).repeat(H, 1)
-            self.VRANGE = ((torch.arange(H).float() + 0.5) / H).cuda().view((-1, 1)).repeat(1, W)
-            self.ONES = torch.ones((H, W)).cuda()
-            pass
-        
-    def forward(self, intrinsics, plane, return_XYZ=False):
+def point_cloud(depth):
+    """Transform a depth image into a point cloud with one point for each
+    pixel in the image, using the camera transform for a camera
+    centred at cx, cy with field of view fx, fy.
 
-        """
-        :param K1: intrinsics of 1st image, 3x3
-        :param K2: intrinsics of 2nd image, 3x3
-        :param depth: depth map of first image, 1 x height x width
-        :param rot: rotation from first to second image, 3
-        :param trans: translation from first to second, 3
-        :return: normalized flow from 1st image to 2nd image, 2 x height x width
-        """
+    depth is a 2-D ndarray with shape (rows, cols) containing
+    depths from 1 to 254 inclusive. The result is a 3-D array with
+    shape (rows, cols, 3). Pixels with invalid depth in the input have
+    NaN for the z-coordinate in the result.
 
-        with torch.no_grad():
-            urange = (self.URANGE * intrinsics[4] - intrinsics[2]) / intrinsics[0]
-            vrange = (self.VRANGE * intrinsics[5] - intrinsics[3]) / intrinsics[1]
-            ranges = torch.stack([urange,
-                                  self.ONES,
-                                  -vrange], -1)
-            pass
+    """
+    #fx = 756.8
+    #fy = 756.0
+    #centerX = 492.8
+    #centerY = 270.4
 
-        planeOffset = torch.norm(plane, dim=-1)
-        planeNormal = plane / torch.clamp(planeOffset.unsqueeze(-1), min=1e-4)
-        depth = planeOffset / torch.clamp(torch.sum(ranges.unsqueeze(-2) * planeNormal, dim=-1), min=1e-4)
-        depth = torch.clamp(depth, min=0, max=10)
+    fx = 1170.187988
+    fy = 1170.187988
+    centerX = 647.750000
+    centerY = 483.750000
 
-        if self.inverse_depth:
-            depth = invertDepth(depth)
-        depth = depth.transpose(1, 2).transpose(0, 1)
+    # scalingFactor = 1
+    # doUndistort = True
 
-        if return_XYZ:
-            return depth, depth.unsqueeze(-1) * ranges
-        return depth        
+    # K = np.matrix([[fx, 0, centerX], [0, fy, centerY], [0, 0, 1]])
+    # distC = np.array([0.2624, -0.9531, -0.0054, 0.0026, 1.1633])
+    # newCameraMatrix = np.empty([3, 3])
+    # points = np.zeros([rgb.shape[0], rgb.shape[1], 3])
 
-class PlaneToDepthLayer(torch.nn.Module):
+    # start = timer()
+    rows, cols = depth.shape
+    c, r = np.meshgrid(np.arange(cols), np.arange(rows), sparse=True)
+    valid = (depth > 0) & (depth < 255)
+    z = np.where(valid, depth / 256.0, np.nan)
+    x = np.where(valid, z * (c - centerX) / fx, 0)
+    y = np.where(valid, z * (r - centerY) / fy, 0)
+    # end = timer()
+    # print("time takes: ", (end-start))
+    return np.dstack((x, y, z))
 
-    def __init__(self, normalized_K = False,  normalized_flow = True, inverse_depth = True):
+def batch_pairwise_dist(x,y):
+    bs, num_points_x, points_dim = x.size()
+    _, num_points_y, _ = y.size()
+    xx = torch.bmm(x, x.transpose(2,1))
+    yy = torch.bmm(y, y.transpose(2,1))
+    zz = torch.bmm(x, y.transpose(2,1))
+    dtype = torch.cuda.LongTensor
+    diag_ind_x = torch.arange(0, num_points_x).type(dtype)
+    diag_ind_y = torch.arange(0, num_points_y).type(dtype)
+    rx = xx[:, diag_ind_x, diag_ind_x].unsqueeze(1).expand_as(zz.transpose(2,1))
+    ry = yy[:, diag_ind_y, diag_ind_y].unsqueeze(1).expand_as(zz)
+    P = (rx.transpose(2,1) + ry - 2*zz)
+    return P
 
-        super(PlaneToDepthLayer, self).__init__()
+def batch_NN_loss(x, y):
 
-        self.plane_to_depth = PlaneToDepth(normalized_K = normalized_K,
-                                           normalized_flow = normalized_flow,
-                                           inverse_depth = inverse_depth)
+    # Set nan values to 0.
+    x[torch.isnan(x)] = 0
+    y[torch.isnan(y)] = 0
 
-    def forward(self, intrinsics, plane, mask):
+    bs, num_points, points_dim = x.size()
+    dist1 = torch.sqrt(batch_pairwise_dist(x, y))
+    values1, indices1 = dist1.min(dim=2)
 
-        """
-        :param K1:  3x3 if shared_K is True, otherwise K1 is nx3x3
-        :param K2:  3x3 if shared_K is True, otherwise K2 is nx3x3
-        :param depth: n x 1 x h x w
-        :param rot:   n x 3
-        :param trans: n x3
-        :param shared_K: if True, we share intrinsics for the depth images of the whole batch
-        :return: n x 2 x h x w
-        """
+    dist2 = torch.sqrt(batch_pairwise_dist(y, x))
+    values2, indices2 = dist2.min(dim=2)
+    a = torch.div(torch.sum(values1,1), num_points)
+    b = torch.div(torch.sum(values2,1), num_points)
+    sum = torch.div(torch.sum(a), bs) + torch.div(torch.sum(b), bs)
 
-        batch_size = plane.size(0)
+    return sum
 
-        depths = ()
-        for i in range(batch_size):
+def calculate_chamfer(gt_image, gt_depth, pred_depth, gt_masks, gt_boxes, gt_class_ids):
+    rgb = gt_image[0].cpu().numpy().transpose(1, 2, 0)
+    gt_depth = gt_depth[0].detach().cpu().numpy()
+    pred_depth = pred_depth[0].detach().cpu().numpy()
 
-            depth = self.plane_to_depth(intrinsics[i], plane[i], mask[i])
-            depths += (depth, )
-        depth = torch.stack(depths, 0)
-        return depth    
+    # print(rgb.shape)
+    # expand the masks to full size, take first ex_i of 100 masks
+    ex_i = torch.sum(gt_class_ids[0]!=0)
+    expanded_mask = utils.expand_mask(gt_boxes[0].cpu().numpy(), gt_masks[0, :ex_i].cpu().numpy().transpose(1, 2, 0),
+                                      rgb.shape)
+
+    # print("Calculate point cloud gt...")
+    # calculate the points from gt depth
+    points_gt = point_cloud(gt_depth)
+
+    # print("Calculate point cloud pred...")
+    # calculate the points from pred depth
+    points_pred = point_cloud(pred_depth)
+
+    #points_gt = points_gt.reshape(-1, points_gt.shape[-1])
+    #points_pred = points_pred.reshape(-1, points_pred.shape[-1])
+
+    loss_sum = 0
+
+    # print("Calculate chamfer loss...")
+    # calculate the chamfer distance between the masked points
+    for i in range(ex_i):
+        # print(i)
+        m = expanded_mask[:, :, i]
+        inds = np.where(m == True)
+
+        if len(inds[0]) == 0:
+            continue
+
+        # reduce the number of points: minimum of 2500 or 1/3rd of indices
+        num_inds = min(2500, len(inds[0]) // 3)
+        rand_inds = np.random.randint(len(inds[0]), size=num_inds)
+        inds = (inds[0][rand_inds], inds[1][rand_inds])
+
+        masked_points_gt = np.array(points_gt)[inds]
+        masked_points_pred = np.array(points_pred)[inds]
+
+        # add back batch dimension
+        if len(masked_points_gt) != 0:
+            masked_points_gt = torch.tensor(masked_points_gt).unsqueeze(0)
+            masked_points_pred = torch.tensor(masked_points_pred).unsqueeze(0)
+
+            # print("shapes: ", masked_points_gt.shape, masked_points_pred.shape)
+
+            # dist1, dist2, _, _ = distChamfer(masked_points_gt, masked_points_pred)
+            # loss_net = (torch.mean(dist1)) + (torch.mean(dist1))
+            loss_net = batch_NN_loss(masked_points_gt, masked_points_pred)
+            #print("loss: ", loss_net)
+            loss_sum += loss_net
+
+    #print("chamf loss ", loss_sum, loss_sum.dtype, " ex i:", ex_i)
+
+    return torch.tensor(loss_sum).float() / ex_i.float().data.cpu().item()
+    # return losses
+
+def calculate_chamfer_scene(gt_image, gt_depth, pred_depth):
+    rgb = gt_image[0].cpu().numpy().transpose(1, 2, 0)
+
+    # calculate the points
+    points_gt = point_cloud(gt_depth[0])
+    points_pred = point_cloud(pred_depth[0])
+
+    points_gt = points_gt.reshape(-1, points_gt.shape[-1])
+    points_pred = points_pred.reshape(-1, points_pred.shape[-1])
+
+    # Sample the points for quick calculation
+    # num_inds = 300000
+    # print(points_gt.shape)
+    # inds = np.random.choice(points_gt.shape, num_inds)
+
+    # print("inds after selection: ", inds[0].shape)
+
+    # points_gt = points_gt[inds-1]
+    # points_pred = points_pred[inds-1]
+
+    # add back batch dimension
+    points_gt = points_gt.unsqueeze(0)
+    points_pred = points_pred.unsqueeze(0)
+    # print("shapes: ", points_gt.shape, points_pred.shape)
+
+    # Set nan values to 0
+    points_gt[torch.isnan(points_gt)] = 0
+    points_pred[torch.isnan(points_pred)] = 0
+    # print('points_gt: ', points_gt.shape, points_gt[0, 50])
+
+    # print("Calculate chamfer loss...")
+    # calculate the chamfer distance
+    # points_gt = Variable(points_gt, requires_grad=True)
+    # points_pred = Variable(points_pred, requires_grad=True)
+
+    # loss = batch_NN_loss(points_gt, points_pred)
+    dist1, dist2 = chamfer_dist(points_gt.float(), points_pred.float())
+    loss = (torch.mean(dist1)) + (torch.mean(dist2))
+
+    # print("loss type: ", loss_sum.dtype)
+    return loss
