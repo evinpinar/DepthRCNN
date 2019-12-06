@@ -106,7 +106,7 @@ def train_depth(augmentation=None):
 	config.VALIDATION_STEPS = 100
 
 	config.DEPTH_THRESHOLD = 0
-	config.DEPTH_LOSS = 'L1' # Options: L1, L2, BERHU
+	config.DEPTH_LOSS = 'CHAMFER' # Options: L1, L2, BERHU
 
 	depth_model = model.DepthCNN(config)
 	config.PREDICT_DEPTH = True
@@ -144,11 +144,11 @@ def train_depthrcnn(augmentation=None, depth_weight=0):
 	model_maskdepth = MaskDepthRCNN(config)
 	model_maskdepth.cuda()
 
-	#resnet_path = '../resnet50_imagenet.pth'
-	#model_maskdepth.load_weights(resnet_path)
+	resnet_path = '../resnet50_imagenet.pth'
+	model_maskdepth.load_weights(resnet_path)
 
-	checkpoint_dir = 'checkpoints/nyudepth20190721T1816/mask_depth_rcnn_nyudepth_0025.pth'
-	model_maskdepth.load_state_dict(torch.load(checkpoint_dir))
+	#checkpoint_dir = 'checkpoints/nyudepth20190721T1816/mask_depth_rcnn_nyudepth_0025.pth'
+	#model_maskdepth.load_state_dict(torch.load(checkpoint_dir))
 
 	config.STEPS_PER_EPOCH = 300
 	config.TRAIN_ROIS_PER_IMAGE = 100
@@ -254,4 +254,4 @@ if __name__ == '__main__':
 	#train_maskrcnn(augmentation=augmentation, depth_weight=10)
 
 	#train_depth(augmentation=augmentation)
-	evaluate_solodepth()
+	train_depth()

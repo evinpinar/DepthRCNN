@@ -119,7 +119,7 @@ class Config(object):
     IMAGE_RESIZE_MODE = "square"
     #IMAGE_MIN_DIM = 800
     #IMAGE_MAX_DIM = 1024
-    IMAGE_MIN_DIM = 480
+    IMAGE_MIN_DIM = 640 #480
     IMAGE_MAX_DIM = 640
 
     IMAGE_PADDING = True

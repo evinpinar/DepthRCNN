@@ -2084,7 +2084,6 @@ def compute_depth_loss_L2(target_depth, pred_depth, thresh=0):
 
     return loss
 
-
 def compute_depth_loss_berHu(target, pred, thresh=0):
     # TODO: Modify for batch.
 
@@ -2111,7 +2110,6 @@ def compute_depth_loss_edge(target, pred, edges):
 
     return loss
 
-
 def compute_depth_loss(target_depth, pred_depth, config, edges = None):
     depth_loss = 0
     if config.DEPTH_LOSS == 'L1':
@@ -2124,6 +2122,8 @@ def compute_depth_loss(target_depth, pred_depth, config, edges = None):
         edge_loss = compute_depth_loss_edge(target_depth[:, 80:560], pred_depth[:, 80:560], edges[80:560])
         depth_loss = compute_depth_loss_L1(target_depth[:, 80:560], pred_depth[:, 80:560], config.DEPTH_THRESHOLD)
         depth_loss += edge_loss
+    if config.DEPTH_LOSS == 'CHAMFER':
+        depth_loss = calculate_chamfer_scene(target_depth[:, 80:560], pred_depth[:, 80:560])
     if config.GRAD_LOSS:
         loss_grad = compute_grad_depth_loss(target_depth[:, 80:560], pred_depth[:, 80:560])
         depth_loss += loss_grad
@@ -4259,6 +4259,7 @@ class DepthCNN(nn.Module):
 
         self.epoch = epochs
 
+    # Uses a maskrcnn compatible dataset, loads only depth maps.
     def train_model2(self, train_dataset, val_dataset, learning_rate, epochs, layers="all", augmentation=None):
         """Train the model.
 		train_dataset, val_dataset: Training and validation Dataset objects.

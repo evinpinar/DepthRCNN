@@ -251,24 +251,12 @@ def point_cloud(depth):
     centerX = 647.750000
     centerY = 483.750000
 
-    # scalingFactor = 1
-    # doUndistort = True
-
-    # K = np.matrix([[fx, 0, centerX], [0, fy, centerY], [0, 0, 1]])
-    # distC = np.array([0.2624, -0.9531, -0.0054, 0.0026, 1.1633])
-    # newCameraMatrix = np.empty([3, 3])
-    # points = np.zeros([rgb.shape[0], rgb.shape[1], 3])
-
-    # start = timer()
     rows, cols = depth.shape
-    c, r = np.meshgrid(np.arange(cols), np.arange(rows), sparse=True)
-    valid = (depth > 0) & (depth < 255)
-    z = np.where(valid, depth / 256.0, np.nan)
-    x = np.where(valid, z * (c - centerX) / fx, 0)
-    y = np.where(valid, z * (r - centerY) / fy, 0)
-    # end = timer()
-    # print("time takes: ", (end-start))
-    return np.dstack((x, y, z))
+    c, r = torch.arange(cols).unsqueeze(0).cuda().float(), torch.arange(rows).unsqueeze(1).cuda().float()
+    z = depth
+    x = z * (c - centerX) / fx
+    y = z * (r - centerY) / fy
+    return torch.stack([x, y, z], dim=2)
 
 def batch_pairwise_dist(x,y):
     bs, num_points_x, points_dim = x.size()
@@ -362,15 +350,13 @@ def calculate_chamfer(gt_image, gt_depth, pred_depth, gt_masks, gt_boxes, gt_cla
     return torch.tensor(loss_sum).float() / ex_i.float().data.cpu().item()
     # return losses
 
-def calculate_chamfer_scene(gt_image, gt_depth, pred_depth):
-    rgb = gt_image[0].cpu().numpy().transpose(1, 2, 0)
-
+def calculate_chamfer_scene(gt_depth, pred_depth):
     # calculate the points
     points_gt = point_cloud(gt_depth[0])
     points_pred = point_cloud(pred_depth[0])
 
-    points_gt = points_gt.reshape(-1, points_gt.shape[-1])
-    points_pred = points_pred.reshape(-1, points_pred.shape[-1])
+    #points_gt = points_gt.reshape(-1, points_gt.shape[-1])
+    #points_pred = points_pred.reshape(-1, points_pred.shape[-1])
 
     # Sample the points for quick calculation
     # num_inds = 300000
@@ -383,13 +369,13 @@ def calculate_chamfer_scene(gt_image, gt_depth, pred_depth):
     # points_pred = points_pred[inds-1]
 
     # add back batch dimension
-    points_gt = points_gt.unsqueeze(0)
-    points_pred = points_pred.unsqueeze(0)
+    #points_gt = points_gt.unsqueeze(0)
+    #points_pred = points_pred.unsqueeze(0)
     # print("shapes: ", points_gt.shape, points_pred.shape)
 
     # Set nan values to 0
-    points_gt[torch.isnan(points_gt)] = 0
-    points_pred[torch.isnan(points_pred)] = 0
+    #points_gt[torch.isnan(points_gt)] = 0
+    #points_pred[torch.isnan(points_pred)] = 0
     # print('points_gt: ', points_gt.shape, points_gt[0, 50])
 
     # print("Calculate chamfer loss...")
