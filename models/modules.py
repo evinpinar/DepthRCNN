@@ -241,15 +241,21 @@ def point_cloud(depth):
     NaN for the z-coordinate in the result.
 
     """
-    #fx = 756.8
-    #fy = 756.0
-    #centerX = 492.8
-    #centerY = 270.4
+    # fx = 756.8
+    # fy = 756.0
+    # centerX = 492.8
+    # centerY = 270.4
 
-    fx = 1170.187988
-    fy = 1170.187988
-    centerX = 647.750000
-    centerY = 483.750000
+    #fx = 1170.187988
+    #fy = 1170.187988
+    #centerX = 647.750000
+    #centerY = 483.750000
+
+    # NYU Dataset Parameters
+    fx = 518.8
+    fy = 519.4
+    centerX = 325.5
+    centerY = 253.7
 
     rows, cols = depth.shape
     c, r = torch.arange(cols).unsqueeze(0).cuda().float(), torch.arange(rows).unsqueeze(1).cuda().float()
