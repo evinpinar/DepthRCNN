@@ -2124,6 +2124,8 @@ def compute_depth_loss(target_depth, pred_depth, config, edges = None):
         depth_loss += edge_loss
     if config.DEPTH_LOSS == 'CHAMFER':
         depth_loss = calculate_chamfer_scene(target_depth[:, 80:560], pred_depth[:, 80:560])
+    if config.CHAM_LOSS:
+        depth_loss += 10*calculate_chamfer_scene(target_depth[:, 80:560], pred_depth[:, 80:560])
     if config.GRAD_LOSS:
         loss_grad = compute_grad_depth_loss(target_depth[:, 80:560], pred_depth[:, 80:560])
         depth_loss += loss_grad
@@ -4341,7 +4343,7 @@ class DepthCNN(nn.Module):
 
         self.epoch = epochs
 
-    ## Uses the load_image_gt_depth. Works for SUNCG dataset.
+    # Uses the load_image_gt_depth. Works for SUNCG dataset.
     def train_model3(self, train_dataset, val_dataset, learning_rate, epochs, layers="all"):
         layer_regex = {
             # all layers but the backbone
@@ -4380,6 +4382,91 @@ class DepthCNN(nn.Module):
 
             # Validation
             val_loss_depth = self.valid_epoch(val_generator, self.config.VALIDATION_STEPS)
+
+            # Statistics
+            self.loss_history.append([loss_depth])
+            self.val_loss_history.append([val_loss_depth])
+
+            if not os.path.exists(self.log_dir):
+                os.makedirs(self.log_dir)
+
+            if os.path.exists(self.log_dir):
+                writer = SummaryWriter(self.log_dir + '/log/')
+
+            writer.add_scalar('Train/Loss', loss_depth, epoch)
+            writer.add_scalar('Val/Loss', val_loss_depth, epoch)
+
+            visualize.plot_depth_loss(self.loss_history, self.val_loss_history, save=True, log_dir=self.log_dir)
+
+            # Save model
+            if epoch % 25 == 0:
+                torch.save(self.state_dict(), self.checkpoint_path.format(epoch))
+
+        self.epoch = epochs
+
+    ## Uses a maskrcnn compatible dataset, loads all values eg. masks, boxes.
+    def train_model4(self, train_dataset, val_dataset, learning_rate, epochs, layers="all"):
+        """Train the model.
+        train_dataset, val_dataset: Training and validation Dataset objects.
+        learning_rate: The learning rate to train with
+        epochs: Number of training epochs. Note that previous training epochs
+                are considered to be done alreay, so this actually determines
+                the epochs to train in total rather than in this particaular
+                call.
+        layers: Allows selecting wich layers to train. It can be:
+            - A regular expression to match layer names to train
+            - One of these predefined values:
+              heaads: The RPN, classifier and mask heads of the network
+              all: All the layers
+              3+: Train Resnet stage 3 and up
+              4+: Train Resnet stage 4 and up
+              5+: Train Resnet stage 5 and up
+        """
+
+        # Pre-defined layer regular expressions
+
+        layer_regex = {
+            # all layers but the backbone
+            "heads": r"(fpn.P5\_.*)|(fpn.P4\_.*)|(fpn.P3\_.*)|(fpn.P2\_.*)|(rpn.*)|(classifier.*)|(mask.*)|(depth.*)",
+            # From a specific Resnet stage and up
+            "3+": r"(fpn.C3.*)|(fpn.C4.*)|(fpn.C5.*)|(fpn.P5\_.*)|(fpn.P4\_.*)|(fpn.P3\_.*)|(fpn.P2\_.*)|(rpn.*)|(classifier.*)|(mask.*)|(depth.*)",
+            "4+": r"(fpn.C4.*)|(fpn.C5.*)|(fpn.P5\_.*)|(fpn.P4\_.*)|(fpn.P3\_.*)|(fpn.P2\_.*)|(rpn.*)|(classifier.*)|(mask.*)|(depth.*)",
+            "5+": r"(fpn.C5.*)|(fpn.P5\_.*)|(fpn.P4\_.*)|(fpn.P3\_.*)|(fpn.P2\_.*)|(rpn.*)|(classifier.*)|(mask.*)|(depth.*)",
+            # All layers
+            "all": ".*",
+        }
+
+        if layers in layer_regex.keys():
+            layers = layer_regex[layers]
+
+        # Data generators
+        # train_set = Dataset(train_dataset, self.config, augment=True)
+        train_generator = torch.utils.data.DataLoader(train_dataset, batch_size=self.config.BATCH_SIZE,
+                                                      shuffle=True, num_workers=4)
+        # val_set = Dataset(val_dataset, self.config, augment=True)
+        val_generator = torch.utils.data.DataLoader(val_dataset, batch_size=self.config.BATCH_SIZE, shuffle=True,
+                                                    num_workers=4)
+
+        # Optimizer object
+        # Add L2 Regularization
+        # Skip gamma and beta weights of batch normalization layers.
+        trainables_wo_bn = [param for name, param in self.named_parameters() if
+                            param.requires_grad and not 'bn' in name]
+        trainables_only_bn = [param for name, param in self.named_parameters() if
+                              param.requires_grad and 'bn' in name]
+        optimizer = optim.SGD([
+            {'params': trainables_wo_bn, 'weight_decay': self.config.WEIGHT_DECAY},
+            {'params': trainables_only_bn}
+        ], lr=learning_rate, momentum=self.config.LEARNING_MOMENTUM)
+
+        for epoch in range(self.epoch + 1, epochs + 1):
+            log("Epoch {}/{}.".format(epoch, epochs))
+
+            # Training
+            loss_depth = self.train_epoch2(train_generator, optimizer, self.config.STEPS_PER_EPOCH)
+
+            # Validation
+            val_loss_depth = self.valid_epoch2(val_generator, self.config.VALIDATION_STEPS)
 
             # Statistics
             self.loss_history.append([loss_depth])
@@ -4459,6 +4546,86 @@ class DepthCNN(nn.Module):
 
         return loss_sum
 
+    # Uses maskrcnn dataset loader, loads masks.
+    def train_epoch2(self, datagenerator, optimizer, steps):
+        batch_count = 0
+        loss_sum = 0
+        step = 0
+
+        optimizer.zero_grad()
+
+        for inputs in datagenerator:
+            batch_count += 1
+
+            images = inputs[0]
+            image_metas = inputs[1]
+            rpn_match = inputs[2]
+            rpn_bbox = inputs[3]
+            gt_class_ids = inputs[4]
+            gt_boxes = inputs[5]
+            gt_masks = inputs[6]
+            gt_depths = inputs[7]
+
+            # image_metas as numpy array
+            image_metas = image_metas.numpy()
+
+            # Wrap in variables
+            images = Variable(images)
+            rpn_match = Variable(rpn_match)
+            rpn_bbox = Variable(rpn_bbox)
+            gt_class_ids = Variable(gt_class_ids)
+            gt_boxes = Variable(gt_boxes)
+            gt_masks = Variable(gt_masks)
+            gt_depths = Variable(gt_depths)
+
+            if self.config.GPU_COUNT:
+                images = images.cuda()
+                rpn_match = rpn_match.cuda()
+                rpn_bbox = rpn_bbox.cuda()
+                gt_class_ids = gt_class_ids.cuda()
+                gt_boxes = gt_boxes.cuda()
+                gt_masks = gt_masks.cuda()
+                gt_depths = gt_depths.cuda()
+
+            # Run depth detection
+            pred_depth = self.predict([images], mode='training')[0]
+
+            # print("gt shape: ", gt_depths.shape, " pred shape: ", pred_depth.shape)
+
+            # Compute losses
+            if self.config.CHAM_COMBINE:
+                chamf, l1 = chamfer_L1_combined_loss(images, gt_depths, pred_depth, gt_masks, gt_boxes, gt_class_ids)
+            else:
+                chamf = calculate_chamfer_masked(images, gt_depths, pred_depth, gt_masks, gt_boxes, gt_class_ids).float().cuda()
+                #print("pred depth shape: ", pred_depth.shape, gt_depths.shape)
+                l1 = compute_depth_loss_L1(pred_depth[:, 80:560], gt_depths[:, 80:560], self.config.DEPTH_THRESHOLD)
+
+            loss = chamf*10+l1
+
+            # Backpropagation
+            loss.backward()
+            torch.nn.utils.clip_grad_norm_(self.parameters(), 5.0)
+            if (batch_count % self.config.BATCH_SIZE) == 0:
+                optimizer.step()
+                optimizer.zero_grad()
+                batch_count = 0
+
+            # Progress
+            if step % 100 == 0:
+                printProgressBar(step + 1, steps, prefix="\t{}/{}".format(step + 1, steps),
+                                 suffix="Complete depth - loss: {:.5f} ".format(
+                                     loss.data.cpu().item()), length=10)
+
+            # Statistics
+            loss_sum += loss.data.cpu().item() / steps
+
+            # Break after 'steps' steps
+            if step == steps - 1:
+                break
+            step += 1
+
+        return loss_sum
+
     def valid_epoch(self, datagenerator, steps):
 
         step = 0
@@ -4486,6 +4653,73 @@ class DepthCNN(nn.Module):
 
                 # Compute losses
                 loss = compute_depth_loss(gt_depths, pred_depth, self.config, edges[0])
+
+                # Progress
+                if step % 100 == 0:
+                    printProgressBar(step + 1, steps, prefix="\t{}/{}".format(step + 1, steps),
+                                     suffix="Complete depth - loss: {:.5f} ".format(
+                                         loss.data.cpu().item()), length=10)
+
+                # Statistics
+                loss_sum += loss.data.cpu().item() / steps
+
+                # Break after 'steps' steps
+                if step == steps - 1:
+                    break
+                step += 1
+
+        return loss_sum
+
+    def valid_epoch(self, datagenerator, steps):
+
+        step = 0
+        loss_sum = 0
+
+        with torch.no_grad():
+            for inputs in datagenerator:
+                images = inputs[0]
+                image_metas = inputs[1]
+                rpn_match = inputs[2]
+                rpn_bbox = inputs[3]
+                gt_class_ids = inputs[4]
+                gt_boxes = inputs[5]
+                gt_masks = inputs[6]
+                gt_depths = inputs[7]
+
+                # image_metas as numpy array
+                image_metas = image_metas.numpy()
+
+                # Wrap in variables
+                images = Variable(images)
+                rpn_match = Variable(rpn_match)
+                rpn_bbox = Variable(rpn_bbox)
+                gt_class_ids = Variable(gt_class_ids)
+                gt_boxes = Variable(gt_boxes)
+                gt_masks = Variable(gt_masks)
+                gt_depths = Variable(gt_depths)
+
+                if self.config.GPU_COUNT:
+                    images = images.cuda()
+                    rpn_match = rpn_match.cuda()
+                    rpn_bbox = rpn_bbox.cuda()
+                    gt_class_ids = gt_class_ids.cuda()
+                    gt_boxes = gt_boxes.cuda()
+                    gt_masks = gt_masks.cuda()
+                    gt_depths = gt_depths.cuda()
+
+                # Run object detection
+                pred_depth = self.predict([images], mode='training')[0]
+
+                # Compute losses
+                if self.config.CHAM_COMBINE:
+                    chamf, l1 = chamfer_L1_combined_loss(images, gt_depths, pred_depth, gt_masks, gt_boxes,
+                                                         gt_class_ids)
+                else:
+                    chamf = calculate_chamfer_masked(images, gt_depths, pred_depth, gt_masks, gt_boxes,
+                                                     gt_class_ids).float().cuda()
+                    l1 = l1LossMask(pred_depth[:, 80:560], gt_depths[:, 80:560], self.config.DEPTH_THRESHOLDs)
+
+                loss = chamf * 100 + l1
 
                 # Progress
                 if step % 100 == 0:

@@ -106,11 +106,13 @@ def train_depth(augmentation=None):
 	config.VALIDATION_STEPS = 100
 
 	config.DEPTH_THRESHOLD = 0
-	config.DEPTH_LOSS = 'CHAMFER' # Options: L1, L2, BERHU
+	config.PREDICT_DEPTH = True
+	config.DEPTH_LOSS = 'L1' # Options: L1, L2, BERHU
+	config.CHAM_LOSS = True
+	config.GRAD_LOSS = False
 
 	depth_model = model.DepthCNN(config)
-	config.PREDICT_DEPTH = True
-	config.GRAD_LOSS = False
+
 	depth_model.cuda()
 
 	resnet_path = '../resnet50_imagenet.pth'
@@ -128,6 +130,52 @@ def train_depth(augmentation=None):
 	config.LEARNING_RATE /= 10
 	epochs = 200
 	depth_model.train_model(dataset_train, dataset_val, learning_rate=config.LEARNING_RATE, epochs=epochs)
+
+
+	end = timer()
+	print('Total training time: ', end - start)
+
+
+def train_depth_cham_masked(augmentation=None):
+
+	config = nyu.NYUConfig()
+	path_to_dataset = '../NYU_data'
+
+	dataset_train = nyu.NYUDataset(path_to_dataset, 'train', config, augmentation=augmentation)
+	dataset_val = nyu.NYUDataset(path_to_dataset, 'test', config)
+	# dataset_test = nyu.NYUDepthDataset(path_to_dataset, 'test', config)
+
+
+	config.STEPS_PER_EPOCH = 700
+	config.TRAIN_ROIS_PER_IMAGE = 100
+	config.VALIDATION_STEPS = 100
+
+	config.DEPTH_THRESHOLD = 0
+	config.PREDICT_DEPTH = True
+	config.DEPTH_LOSS = 'L1' # Options: L1, L2, BERHU
+	config.CHAM_LOSS = False
+	config.GRAD_LOSS = False
+	config.CHAM_COMBINE = False
+
+	depth_model = model.DepthCNN(config)
+
+	depth_model.cuda()
+
+	resnet_path = '../resnet50_imagenet.pth'
+	depth_model.load_weights(resnet_path)
+
+	#checkpoint_dir = 'checkpoints/nyudepth20191003T1927/mask_rcnn_nyudepth_0100.pth'
+	#depth_model.load_state_dict(torch.load(checkpoint_dir))
+
+	depth_model.train()
+	start = timer()
+
+	epochs = 100
+	depth_model.train_model4(dataset_train, dataset_val, learning_rate=config.LEARNING_RATE, epochs=epochs)
+
+	config.LEARNING_RATE /= 10
+	epochs = 200
+	depth_model.train_model4(dataset_train, dataset_val, learning_rate=config.LEARNING_RATE, epochs=epochs)
 
 
 	end = timer()
@@ -176,37 +224,51 @@ def evaluate_solodepth():
 	depth_model = model.DepthCNN(config)
 	depth_model.cuda()
 
-	checkpoint_dir = 'checkpoints/nyudepth20191005T1327/mask_rcnn_nyudepth_0200.pth'
+	checkpoint_dir = 'checkpoints/nyudepth20191206T1240/mask_rcnn_nyudepth_0200.pth'
+	#checkpoint_dir = 'checkpoints/nyudepth20190817T0911/mask_rcnn_nyudepth_0200.pth'
 	depth_model.load_state_dict(torch.load(checkpoint_dir))
 
 	errors = []
+	chamfer_scores = []
 	step = 0
 
-	for i in range(len(dataset_val)):
+	depth_model.eval()
+	with torch.no_grad():
 
-		inputs = dataset_val[i]
-		images = torch.from_numpy(inputs[0]).unsqueeze(0)
-		gt_depths = torch.from_numpy(inputs[2]).unsqueeze(0)
+		for i in range(len(dataset_val)):
 
-		# Wrap in variables
-		images = Variable(images)
-		gt_depths = Variable(gt_depths)
+			inputs = dataset_val[i]
+			images = torch.from_numpy(inputs[0]).unsqueeze(0)
+			gt_depths = torch.from_numpy(inputs[2]).unsqueeze(0)
 
-		images = images.cuda()
-		gt_depths = gt_depths.cuda()
+			# Wrap in variables
+			images = Variable(images)
+			gt_depths = Variable(gt_depths)
 
-		depth_np = depth_model.predict([images, gt_depths], mode='inference')
+			images = images.cuda()
+			gt_depths = gt_depths.cuda()
 
-		depth_pred = depth_np[0][0, 80:560, :].detach().cpu().numpy()
-		depth_gt = gt_depths[0, 80:560, :].cpu().numpy()
+			depth_np = depth_model.predict([images, gt_depths], mode='inference')
 
-		#err = evaluateDepths(depth_pred, depth_gt, printInfo=False)
-		err = compute_errors(depth_gt, depth_pred)
-		errors.append(err)
-		step += 1
+			#print("pred: ", depth_np[0].shape)
+			#print("gt: ", gt_depths.shape)
+			#print("pred type:", depth_np[0].dtype)
 
-		if step % 100 == 0:
-			print(" HERE: ", step)
+			cham = calculate_chamfer_scene(gt_depths[:, 80:560], depth_np[0][:, 80:560].cuda())
+			chamfer_scores.append(cham)
+
+			depth_pred = depth_np[0][0, 80:560, :].detach().cpu().numpy()
+			depth_gt = gt_depths[0, 80:560, :].cpu().numpy()
+
+			#err = evaluateDepths(depth_pred, depth_gt, printInfo=False)
+			err = compute_errors(depth_gt, depth_pred)
+			errors.append(err)
+
+
+			step += 1
+
+			if step % 100 == 0:
+				print(" HERE: ", step)
 
 	e = np.array(errors).mean(0).tolist()
 	#print("{:>10}, {:>10}, {:>10}, {:>10}, {:>10}, {:>10}, {:>10}, {:>10}".format('rel', 'rel_sqr', 'log_10', 'rmse','rmse_log', 'a1', 'a2', 'a3'))
@@ -215,6 +277,9 @@ def evaluate_solodepth():
 
 	print("{:>10}, {:>10}, {:>10}, {:>10}, {:>10}, {:>10}".format('rel', 'rel_sqr', 'rmse', 'rmse_log', 'a1', 'a2', 'a3'))
 	print("{:10.4f}, {:10.4f}, {:10.4f}, {:10.4f}, {:10.4f}, {:10.4f}, {:10.4f}".format(e[0], e[1], e[2], e[3], e[4], e[5], e[6]))
+
+	c = np.array(chamfer_scores).mean(0)
+	print("Chamfer score: ", c)
 
 
 
@@ -254,4 +319,7 @@ if __name__ == '__main__':
 	#train_maskrcnn(augmentation=augmentation, depth_weight=10)
 
 	#train_depth(augmentation=augmentation)
-	train_depth()
+
+	#train_depth()
+	train_depth_cham_masked()
+	#evaluate_solodepth()
