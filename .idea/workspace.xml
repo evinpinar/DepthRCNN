@@ -7,10 +7,7 @@
       <change afterPath="$PROJECT_DIR$/../../../Workspaces/competitive_python/leetcode/297.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/../NYU_depth_v2_extractor/helper.py" beforeDir="false" afterPath="$PROJECT_DIR$/../NYU_depth_v2_extractor/helper.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/../NYU_depth_v2_extractor/sketch.py" beforeDir="false" afterPath="$PROJECT_DIR$/../NYU_depth_v2_extractor/sketch.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/models/model.py" beforeDir="false" afterPath="$PROJECT_DIR$/models/model.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/models/modules.py" beforeDir="false" afterPath="$PROJECT_DIR$/models/modules.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/train_nyu.py" beforeDir="false" afterPath="$PROJECT_DIR$/train_nyu.py" afterDir="false" />
     </list>
     <option name="EXCLUDED_CONVERTED_TO_IGNORED" value="true" />
     <option name="SHOW_DIALOG" value="false" />
@@ -49,11 +46,11 @@
   </component>
   <component name="FileEditorManager">
     <leaf SIDE_TABS_SIZE_LIMIT_KEY="300">
-      <file pinned="false" current-in-tab="true">
+      <file pinned="false" current-in-tab="false">
         <entry file="file://$PROJECT_DIR$/models/model.py">
           <provider selected="true" editor-type-id="text-editor">
-            <state relative-caret-position="262">
-              <caret line="2127" column="24" selection-start-line="2127" selection-start-column="24" selection-end-line="2127" selection-end-column="24" />
+            <state relative-caret-position="255">
+              <caret line="4716" column="21" lean-forward="true" selection-start-line="4716" selection-start-column="21" selection-end-line="4716" selection-end-column="21" />
               <folding>
                 <element signature="e#0#210#1" />
                 <element signature="e#212#227#0" expanded="true" />
@@ -368,6 +365,7 @@
                 <element signature="e#121885#121961#0" />
                 <element signature="e#122269#122492#0" />
                 <element signature="e#122495#122555#0" />
+                <element signature="e#122677#166764#0" />
                 <element signature="e#122677#122824#1" />
                 <element signature="e#122891#123273#0" />
                 <element signature="e#122891#123007#1" />
@@ -388,7 +386,6 @@
                 <element signature="e#126803#127121#0" />
                 <element signature="e#126803#126895#1" />
                 <element signature="e#126955#127121#0" />
-                <element signature="e#127175#128790#0" />
                 <element signature="e#127175#127444#1" />
                 <element signature="e#127673#128227#0" />
                 <element signature="e#127673#127739#0" />
@@ -484,12 +481,7 @@
                 <element signature="e#166934#167040#1" />
                 <element signature="e#167107#167489#0" />
                 <element signature="e#167107#167223#1" />
-                <element signature="e#167528#168850#0" />
-                <element signature="e#167754#167987#0" />
                 <element signature="e#167770#167986#0" />
-                <element signature="e#167997#168038#0" />
-                <element signature="e#168368#168386#0" />
-                <element signature="e#168671#168818#0" />
                 <element signature="e#168894#169381#0" />
                 <element signature="e#168975#169381#0" />
                 <element signature="e#169020#169132#0" />
@@ -498,7 +490,6 @@
                 <element signature="e#169466#169784#0" />
                 <element signature="e#169466#169558#1" />
                 <element signature="e#169618#169784#0" />
-                <element signature="e#169838#171369#0" />
                 <element signature="e#169838#170107#1" />
                 <element signature="e#170336#170890#0" />
                 <element signature="e#170336#170402#0" />
@@ -1044,8 +1035,8 @@
       <file pinned="false" current-in-tab="false">
         <entry file="file://$PROJECT_DIR$/train_scannet.py">
           <provider selected="true" editor-type-id="text-editor">
-            <state relative-caret-position="1538">
-              <caret line="265" column="8" selection-start-line="265" selection-start-column="8" selection-end-line="265" selection-end-column="8" />
+            <state relative-caret-position="-312">
+              <caret line="210" column="54" lean-forward="true" selection-start-line="210" selection-start-column="54" selection-end-line="210" selection-end-column="54" />
               <folding>
                 <element signature="e#0#9#0" expanded="true" />
               </folding>
@@ -1053,14 +1044,15 @@
           </provider>
         </entry>
       </file>
-      <file pinned="false" current-in-tab="false">
+      <file pinned="false" current-in-tab="true">
         <entry file="file://$PROJECT_DIR$/train_nyu.py">
           <provider selected="true" editor-type-id="text-editor">
-            <state relative-caret-position="258">
-              <caret line="150" column="33" lean-forward="true" selection-start-line="150" selection-start-column="33" selection-end-line="150" selection-end-column="33" />
+            <state relative-caret-position="207">
+              <caret line="155" column="28" lean-forward="true" selection-start-line="155" selection-start-column="28" selection-end-line="155" selection-end-column="28" />
               <folding>
                 <element signature="e#0#9#0" expanded="true" />
                 <element signature="e#628#2419#0" />
+                <element signature="e#2460#3653#0" />
                 <element signature="e#3713#4633#0" />
                 <element signature="e#4669#6661#0" />
               </folding>
@@ -1381,7 +1373,6 @@
   </component>
   <component name="FindInProjectRecents">
     <findStrings>
-      <find>unmold_detections</find>
       <find>detection_layer_</find>
       <find>build_roi_features</find>
       <find>data_generator_onlydepth</find>
@@ -1396,7 +1387,6 @@
       <find>getInstanceMasks</find>
       <find>transform</find>
       <find>SummaryWriter</find>
-      <find>log_dir</find>
       <find>datetime</find>
       <find>checkpoint_path</find>
       <find>self.log_dir</find>
@@ -1411,6 +1401,8 @@
       <find>train_model</find>
       <find>chamfer_dist</find>
       <find>l1LossMask</find>
+      <find>model_dir</find>
+      <find>log_dir</find>
     </findStrings>
   </component>
   <component name="Git.Settings">
@@ -1731,7 +1723,7 @@
       <workItem from="1569793089786" duration="205471000" />
       <workItem from="1572266161780" duration="22170000" />
       <workItem from="1572945928068" duration="26221000" />
-      <workItem from="1574713863274" duration="57153000" />
+      <workItem from="1574713863274" duration="58345000" />
     </task>
     <task id="LOCAL-00001" summary="Model modified for depth prediction.">
       <created>1562099528257</created>
@@ -1772,7 +1764,7 @@
     </history-entry>
   </component>
   <component name="TimeTrackingManager">
-    <option name="totallyTimeSpent" value="757591000" />
+    <option name="totallyTimeSpent" value="758783000" />
   </component>
   <component name="TodoView">
     <todo-panel id="selected-file">
@@ -2624,29 +2616,6 @@
         </state>
       </provider>
     </entry>
-    <entry file="file://$PROJECT_DIR$/train_scannet.py">
-      <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="1538">
-          <caret line="265" column="8" selection-start-line="265" selection-start-column="8" selection-end-line="265" selection-end-column="8" />
-          <folding>
-            <element signature="e#0#9#0" expanded="true" />
-          </folding>
-        </state>
-      </provider>
-    </entry>
-    <entry file="file://$PROJECT_DIR$/train_nyu.py">
-      <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="258">
-          <caret line="150" column="33" lean-forward="true" selection-start-line="150" selection-start-column="33" selection-end-line="150" selection-end-column="33" />
-          <folding>
-            <element signature="e#0#9#0" expanded="true" />
-            <element signature="e#628#2419#0" />
-            <element signature="e#3713#4633#0" />
-            <element signature="e#4669#6661#0" />
-          </folding>
-        </state>
-      </provider>
-    </entry>
     <entry file="file://$PROJECT_DIR$/models/model_maskdepthrcnn.py">
       <provider selected="true" editor-type-id="text-editor">
         <state relative-caret-position="2466">
@@ -3116,10 +3085,20 @@
         </state>
       </provider>
     </entry>
+    <entry file="file://$PROJECT_DIR$/train_scannet.py">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="-312">
+          <caret line="210" column="54" lean-forward="true" selection-start-line="210" selection-start-column="54" selection-end-line="210" selection-end-column="54" />
+          <folding>
+            <element signature="e#0#9#0" expanded="true" />
+          </folding>
+        </state>
+      </provider>
+    </entry>
     <entry file="file://$PROJECT_DIR$/models/model.py">
       <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="262">
-          <caret line="2127" column="24" selection-start-line="2127" selection-start-column="24" selection-end-line="2127" selection-end-column="24" />
+        <state relative-caret-position="255">
+          <caret line="4716" column="21" lean-forward="true" selection-start-line="4716" selection-start-column="21" selection-end-line="4716" selection-end-column="21" />
           <folding>
             <element signature="e#0#210#1" />
             <element signature="e#212#227#0" expanded="true" />
@@ -3434,6 +3413,7 @@
             <element signature="e#121885#121961#0" />
             <element signature="e#122269#122492#0" />
             <element signature="e#122495#122555#0" />
+            <element signature="e#122677#166764#0" />
             <element signature="e#122677#122824#1" />
             <element signature="e#122891#123273#0" />
             <element signature="e#122891#123007#1" />
@@ -3454,7 +3434,6 @@
             <element signature="e#126803#127121#0" />
             <element signature="e#126803#126895#1" />
             <element signature="e#126955#127121#0" />
-            <element signature="e#127175#128790#0" />
             <element signature="e#127175#127444#1" />
             <element signature="e#127673#128227#0" />
             <element signature="e#127673#127739#0" />
@@ -3550,12 +3529,7 @@
             <element signature="e#166934#167040#1" />
             <element signature="e#167107#167489#0" />
             <element signature="e#167107#167223#1" />
-            <element signature="e#167528#168850#0" />
-            <element signature="e#167754#167987#0" />
             <element signature="e#167770#167986#0" />
-            <element signature="e#167997#168038#0" />
-            <element signature="e#168368#168386#0" />
-            <element signature="e#168671#168818#0" />
             <element signature="e#168894#169381#0" />
             <element signature="e#168975#169381#0" />
             <element signature="e#169020#169132#0" />
@@ -3564,7 +3538,6 @@
             <element signature="e#169466#169784#0" />
             <element signature="e#169466#169558#1" />
             <element signature="e#169618#169784#0" />
-            <element signature="e#169838#171369#0" />
             <element signature="e#169838#170107#1" />
             <element signature="e#170336#170890#0" />
             <element signature="e#170336#170402#0" />
@@ -3629,6 +3602,20 @@
             <element signature="e#195651#195842#0" />
             <element signature="e#195651#195785#1" />
             <element signature="e#195894#196030#0" />
+          </folding>
+        </state>
+      </provider>
+    </entry>
+    <entry file="file://$PROJECT_DIR$/train_nyu.py">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="207">
+          <caret line="155" column="28" lean-forward="true" selection-start-line="155" selection-start-column="28" selection-end-line="155" selection-end-column="28" />
+          <folding>
+            <element signature="e#0#9#0" expanded="true" />
+            <element signature="e#628#2419#0" />
+            <element signature="e#2460#3653#0" />
+            <element signature="e#3713#4633#0" />
+            <element signature="e#4669#6661#0" />
           </folding>
         </state>
       </provider>

@@ -4013,7 +4013,7 @@ class DepthCNN(nn.Module):
         ## Bottom-up Layers
         ## Returns a list of the last layers of each stage, 5 in total.
         ## Don't create the thead (stage 5), so we pick the 4th item in the list.
-        resnet = ResNet("resnet101", stage5=True, numInputChannels=config.NUM_INPUT_CHANNELS)
+        resnet = ResNet("resnet50", stage5=True, numInputChannels=config.NUM_INPUT_CHANNELS)
         C1, C2, C3, C4, C5 = resnet.stages()
 
         ## Top-down Layers
@@ -4670,7 +4670,7 @@ class DepthCNN(nn.Module):
 
         return loss_sum
 
-    def valid_epoch(self, datagenerator, steps):
+    def valid_epoch2(self, datagenerator, steps):
 
         step = 0
         loss_sum = 0
@@ -4717,9 +4717,9 @@ class DepthCNN(nn.Module):
                 else:
                     chamf = calculate_chamfer_masked(images, gt_depths, pred_depth, gt_masks, gt_boxes,
                                                      gt_class_ids).float().cuda()
-                    l1 = l1LossMask(pred_depth[:, 80:560], gt_depths[:, 80:560], self.config.DEPTH_THRESHOLDs)
+                    l1 = compute_depth_loss_L1(pred_depth[:, 80:560], gt_depths[:, 80:560], self.config.DEPTH_THRESHOLD)
 
-                loss = chamf * 100 + l1
+                loss = chamf * 10 + l1
 
                 # Progress
                 if step % 100 == 0:
