@@ -224,7 +224,7 @@ def evaluate_solodepth():
 	depth_model = model.DepthCNN(config)
 	depth_model.cuda()
 
-	checkpoint_dir = 'checkpoints/nyudepth20191206T1240/mask_rcnn_nyudepth_0200.pth'
+	checkpoint_dir = 'checkpoints/nyudepth20191207T1220/mask_rcnn_nyudepth_0200.pth'
 	#checkpoint_dir = 'checkpoints/nyudepth20190817T0911/mask_rcnn_nyudepth_0200.pth'
 	depth_model.load_state_dict(torch.load(checkpoint_dir))
 
@@ -321,5 +321,5 @@ if __name__ == '__main__':
 	#train_depth(augmentation=augmentation)
 
 	#train_depth()
-	train_depth_cham_masked()
-	#evaluate_solodepth()
+	#train_depth_cham_masked()
+	evaluate_solodepth()

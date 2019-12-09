@@ -4297,8 +4297,8 @@ class DepthCNN(nn.Module):
             layers = layer_regex[layers]
 
         # Data generators
-        train_generator = data_generator_onlydepth(train_dataset, self.config, shuffle=True, augment=False, batch_size=6, augmentation=augmentation)
-        val_generator = data_generator_onlydepth(val_dataset, self.config, shuffle=True, augment=False, batch_size=6, augmentation=augmentation)
+        train_generator = data_generator_onlydepth(train_dataset, self.config, shuffle=True, augment=False, batch_size=self.config.BATCH_SIZE, augmentation=augmentation)
+        val_generator = data_generator_onlydepth(val_dataset, self.config, shuffle=True, augment=False, batch_size=self.config.BATCH_SIZE, augmentation=augmentation)
 
         # Optimizer object
         # Add L2 Regularization

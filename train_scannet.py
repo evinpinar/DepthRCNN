@@ -158,6 +158,7 @@ def train_solodepth(augmentation=None):
     print("Image Count: {}".format(len(dataset_val.image_ids)))
     print("Class Count: {}".format(dataset_val.num_classes))
 
+    config.BATCH_SIZE = 6
     config.STEPS_PER_EPOCH = 2500 # 15000 changed for batch size 6
     config.TRAIN_ROIS_PER_IMAGE = 100
     config.VALIDATION_STEPS = 330 #2000
@@ -176,7 +177,7 @@ def train_solodepth(augmentation=None):
     depth_model = modellib.DepthCNN(config)
     depth_model.cuda()
 
-    depth_model.load_weights(coco_path)
+    depth_model.load_weights(resnet_path)
 
     start = timer()
     depth_model.train_model2(dataset_train, dataset_val, learning_rate=config.LEARNING_RATE, epochs=epochs,
@@ -364,21 +365,19 @@ if __name__ == '__main__':
         iaa.Fliplr(0.5),  # horizontal flips
         # Small gaussian blur with random sigma between 0 and 0.25.
         # But we only blur about 50% of all images.
-        iaa.Sometimes(0.5,
-                      iaa.GaussianBlur(sigma=(0, 0.25))
-                      ),
+        # iaa.Sometimes(0.5,iaa.GaussianBlur(sigma=(0, 0.25))),
         # Strengthen or weaken the contrast in each image.
-        iaa.ContrastNormalization((0.75, 1.5)),
+        # iaa.ContrastNormalization((0.75, 1.5)),
         # Add gaussian noise.
         # For 50% of all images, we sample the noise once per pixel.
         # For the other 50% of all images, we sample the noise per pixel AND
         # channel. This can change the color (not only brightness) of the
         # pixels.
-        iaa.AdditiveGaussianNoise(loc=0, scale=(0.0, 0.05 * 255)),
+        # iaa.AdditiveGaussianNoise(loc=0, scale=(0.0, 0.05 * 255)),
         # Make some images brighter and some darker.
         # In 20% of all cases, we sample the multiplier once per channel,
         # which can end up changing the color of the images.
-        iaa.Multiply((0.8, 1.2)),
+        # iaa.Multiply((0.8, 1.2)),
         # Apply affine transformations to each image.
         # Scale/zoom them, translate/move them, rotate them and shear them.
         # iaa.Affine(
@@ -400,8 +399,8 @@ if __name__ == '__main__':
 
         #train_roidepth(augmentation)
 
-        #train_solodepth()
-        evaluate_roidepth()
+        train_solodepth()
+        #evaluate_roidepth()
 
 
 

@@ -58,6 +58,7 @@ class ScannetConfig(Config):
     DEPTH_THRESHOLD = 0.1
     USE_ROI_MINI_MASK = False
     PREDICT_NORMAL = False
+    CHAM_LOSS = False
 
     # We use a GPU with 12GB memory, which can fit two images.
     # Adjust down if you use a smaller GPU.
@@ -84,7 +85,7 @@ class ScannetConfig(Config):
 
 class ScannetDataset(utils.Dataset):
 
-    def load_scannet(self, subset):
+    def load_scannet(self, subset, scannet_data='/home/orneke/SCANNET/'):
         """Load a subset of the Balloon dataset.
         dataset_dir: Root directory of the dataset.
         subset: Subset to load: train or val
@@ -102,7 +103,7 @@ class ScannetDataset(utils.Dataset):
         assert subset in ["train", "val", "test"]
 
 
-        scannet_data = '/home/orneke/SCANNET/'
+        #scannet_data = '/home/orneke/SCANNET/'
 
 
         if subset == "train":
