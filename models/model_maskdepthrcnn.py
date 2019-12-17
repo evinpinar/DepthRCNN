@@ -2015,44 +2015,46 @@ class Depth(nn.Module):
         self.depth_pred = nn.Conv2d(64, num_output_channels, kernel_size=3, stride=1, padding=1)
 
         self.crop = True
+        #self.crop = False
         return
 
     def forward(self, feature_maps):
+        print("This is global depth map prediction: ")
         if self.crop:
             padding = 5
             for c in range(2, 5):
                 feature_maps[c] = feature_maps[c][:, :, padding * pow(2, c - 2):-padding * pow(2, c - 2)]
-                #print("feat cropped: ", c, feature_maps[c].shape)
+                print("feat cropped: ", c, feature_maps[c].shape)
                 continue
             pass
-        #print("FMap 0: ", feature_maps[0].shape)
+        print("FMap 0: ", feature_maps[0].shape)
         x = self.conv1(feature_maps[0])
-        #print("first conv of feature map: ", x.shape)
+        print("first conv of feature map: ", x.shape)
         x = self.deconv1(x)
-        #print("deconv conv: ", x.shape)
-        #print("before conv of fmap 1 y:", feature_maps[1].shape)
+        print("deconv conv: ", x.shape)
+        print("before conv of fmap 1 y:", feature_maps[1].shape)
         y = self.conv2(feature_maps[1])
-        #print("conv of fmap 1:", y.shape)
+        print("conv of fmap 1:", y.shape)
         x = torch.cat([y, x], dim=1)
-        #print("concatenated: ", x.shape)
+        print("concatenated: ", x.shape)
         x = self.deconv2(x)
-        #print("Deconv again: ", x.shape)
+        print("Deconv again: ", x.shape)
         if self.crop:
             x = x[:, :, 5:35]
-            #print("x cropped: ", x.shape)
+            print("x cropped: ", x.shape)
         y = self.conv3(feature_maps[2])
-        #print("conv3 of map 2: ", y.shape)
+        print("conv3 of map 2: ", y.shape)
         x = torch.cat([y, x], dim=1)
-        #print("concated: ", x.shape)
+        print("concated: ", x.shape)
         x = self.deconv3(x)
-        #print("deconv3: ", x.shape)
+        print("deconv3: ", x.shape)
         x = self.deconv4(torch.cat([self.conv4(feature_maps[3]), x], dim=1))
-        #print("deconv4: ", x.shape)
+        print("deconv4: ", x.shape)
         x = self.deconv5(torch.cat([self.conv5(feature_maps[4]), x], dim=1))
         feats = x.clone()
-        #print("deconv5: ", x.shape)
+        print("deconv5: ", x.shape)
         x = self.depth_pred(x)
-        #print("Last: ", x.shape)
+        print("Last: ", x.shape)
 
         if self.crop:
             x = torch.nn.functional.interpolate(x, size=(480, 640), mode='bilinear')
@@ -2062,7 +2064,7 @@ class Depth(nn.Module):
             x = torch.nn.functional.interpolate(x, size=(640, 640), mode='bilinear')
             pass
 
-        #print(" Normal after interpolate ", x.shape, " crop? ", self.crop)
+        print(" Normal after interpolate ", x.shape, " crop? ", self.crop)
 
         return x, feats
 
@@ -2106,7 +2108,7 @@ class DepthRefine(nn.Module):
 
         return
 
-    def forward(self, roi_feats_all, global_feats):
+    def forward_noconst(self, roi_feats_all, global_feats):
         comb_feats = torch.cat([roi_feats_all, global_feats], dim=1)
         a = self.conv1_1(comb_feats)
         a = self.conv1_2(a)
@@ -2118,17 +2120,24 @@ class DepthRefine(nn.Module):
 
         return final_depth
 
-    def forward_original(self, roi_feats_all, global_feats):
+    def forward(self, roi_feats_all, global_feats):
+        print("Combine the global and local features for final result! ")
+        print("global shape: ", global_feats.shape, " local shape: ", roi_feats_all.shape)
         comb_feats = torch.cat([roi_feats_all, global_feats], dim=1)
         a = self.conv1_1(comb_feats)
         a = self.conv1_2(a)
         b = self.conv2_1(comb_feats)
         b = self.conv2_2(b)
+        print("a shape: ", a.shape)
+        print("b shape: ", b.shape)
         x = a * roi_feats_all
         y = (1 - a) * global_feats
         final_feat = x + y + b
+        print("final feats: ", final_feat.shape)
         penund_feat = self.deconv(final_feat)
+        print("deconv final: ", penund_feat.shape)
         final_depth = self.depth_pred(penund_feat)
+        print("final: ", final_depth.shape)
 
         return final_depth
 
@@ -2970,7 +2979,7 @@ class MaskDepthRCNN(nn.Module):
             global_feats = torch.cat([zeros, x, zeros], dim=2)
             local_feats = local_feats.unsqueeze(0)
 
-            # print("Rois shape before combining: ", rois.shape)
+            #print("Rois shape before combining: ", rois.shape)
             roi_feats_all = build_roi_features(detection_boxes, local_feats, [320, 320], mrcnn_mask, mrcnn_class_logits)
 
             if self.config.GPU_COUNT:

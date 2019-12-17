@@ -181,31 +181,31 @@ class FPN(nn.Module):
         )
 
     def forward(self, x):
-        # print(" FPN start: ", x.shape)
+        #print(" FPN start: ", x.shape)
         x = self.C1(x)
-        # print(" C1 first conv: ", x.shape)
+        #print(" C1 first conv: ", x.shape)
         x = self.C2(x)
-        # print(" C2 second conv: ", x.shape)
+        #print(" C2 second conv: ", x.shape)
         c2_out = x
         x = self.C3(x)
-        # print(" C3 third conv: ", x.shape)
+        #print(" C3 third conv: ", x.shape)
         c3_out = x
         x = self.C4(x)
-        # print(" C4 fourth conv: ", x.shape)
+        #print(" C4 fourth conv: ", x.shape)
         c4_out = x
         x = self.C5(x)
-        # print(" C5 fifty conv: ", x.shape)
+        #print(" C5 fifty conv: ", x.shape)
 
         p5_out = self.P5_conv1(x)
-        # print(" FPN5 second conv: ", x.shape)
+        #print(" FPN5 second conv: ", x.shape)
 
         if self.bilinear_upsampling:
             p4_out = self.P4_conv1(c4_out) + F.upsample(p5_out, scale_factor=2, mode='bilinear')
-            # print(" FPN4 second conv: ", p4_out.shape)
+            #print(" FPN4 second conv: ", p4_out.shape)
             p3_out = self.P3_conv1(c3_out) + F.upsample(p4_out, scale_factor=2, mode='bilinear')
-            # print(" FPN3 second conv: ", p3_out.shape)
+            #print(" FPN3 second conv: ", p3_out.shape)
             p2_out = self.P2_conv1(c2_out) + F.upsample(p3_out, scale_factor=2, mode='bilinear')
-        # print(" FPN2 second conv: ", p2_out.shape)
+            #print(" FPN2 second conv: ", p2_out.shape)
         else:
             p4_out = self.P4_conv1(c4_out) + F.upsample(p5_out, scale_factor=2)
             p3_out = self.P3_conv1(c3_out) + F.upsample(p4_out, scale_factor=2)
@@ -213,11 +213,11 @@ class FPN(nn.Module):
             pass
 
         p5_out = self.P5_conv2(p5_out)
-        # print(" FPN5 second conv2: ", p5_out.shape)
+        #print(" FPN5 second conv2: ", p5_out.shape)
         p4_out = self.P4_conv2(p4_out)
-        # print(" FPN4 second conv2: ", p4_out.shape)
+        #print(" FPN4 second conv2: ", p4_out.shape)
         p3_out = self.P3_conv2(p3_out)
-        # print(" FPN3 second conv2: ", p3_out.shape)
+        #print(" FPN3 second conv2: ", p3_out.shape)
         p2_out = self.P2_conv2(p2_out)
         # print(" FPN2 second conv2: ", p2_out.shape)
 
@@ -2114,6 +2114,7 @@ def compute_depth_loss(target_depth, pred_depth, config, edges = None):
     depth_loss = 0
     if config.DEPTH_LOSS == 'L1':
         depth_loss = compute_depth_loss_L1(target_depth[:, 80:560], pred_depth[:, 80:560], config.DEPTH_THRESHOLD)
+        #depth_loss = compute_depth_loss_L1(target_depth[:, 40:280], pred_depth[:, 40:280], config.DEPTH_THRESHOLD)
     if config.DEPTH_LOSS == 'L2':
         depth_loss = compute_depth_loss_L1(target_depth[:, 80:560], pred_depth[:, 80:560], config.DEPTH_THRESHOLD)
     if config.DEPTH_LOSS == 'BERHU':

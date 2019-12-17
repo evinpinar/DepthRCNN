@@ -104,11 +104,12 @@ def train_depth(augmentation=None):
 	config.STEPS_PER_EPOCH = 700
 	config.TRAIN_ROIS_PER_IMAGE = 100
 	config.VALIDATION_STEPS = 100
+	config.BATCH_SIZE = 5
 
 	config.DEPTH_THRESHOLD = 0
 	config.PREDICT_DEPTH = True
-	config.DEPTH_LOSS = 'L1' # Options: L1, L2, BERHU
-	config.CHAM_LOSS = True
+	config.DEPTH_LOSS = 'L2' # Options: L1, L2, BERHU
+	config.CHAM_LOSS = False
 	config.GRAD_LOSS = False
 
 	depth_model = model.DepthCNN(config)
@@ -224,9 +225,9 @@ def evaluate_solodepth():
 	depth_model = model.DepthCNN(config)
 	depth_model.cuda()
 
-	checkpoint_dir = 'checkpoints/nyudepth20191207T1220/mask_rcnn_nyudepth_0200.pth'
+	checkpoint_dir = 'checkpoints/nyudepth20191207T1216/mask_rcnn_nyudepth_0200.pth'
 	#checkpoint_dir = 'checkpoints/nyudepth20190817T0911/mask_rcnn_nyudepth_0200.pth'
-	depth_model.load_state_dict(torch.load(checkpoint_dir))
+	depth_model.load_state_dict(torch.load(checkpoint_dir, map_location='cuda:0'))
 
 	errors = []
 	chamfer_scores = []
@@ -260,8 +261,8 @@ def evaluate_solodepth():
 			depth_pred = depth_np[0][0, 80:560, :].detach().cpu().numpy()
 			depth_gt = gt_depths[0, 80:560, :].cpu().numpy()
 
-			#err = evaluateDepths(depth_pred, depth_gt, printInfo=False)
-			err = compute_errors(depth_gt, depth_pred)
+			err = evaluateDepths(depth_pred, depth_gt, printInfo=False)
+			#err = compute_errors(depth_gt, depth_pred)
 			errors.append(err)
 
 

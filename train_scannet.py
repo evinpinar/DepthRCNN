@@ -317,7 +317,7 @@ def evaluate_solodepth():
     depth_model = DepthCNN(config)
     depth_model.cuda()
 
-    checkpoint_dir = 'checkpoints/scannet20191127T2022/mask_rcnn_scannet_0010.pth'
+    checkpoint_dir = 'checkpoints/scannet20191209T1450/mask_rcnn_scannet_0020.pth'
     depth_model.load_state_dict(torch.load(checkpoint_dir))
 
     test_generator = data_generator_onlydepth(dataset_test, config, shuffle=False, augment=False, batch_size=1,
@@ -399,8 +399,9 @@ if __name__ == '__main__':
 
         #train_roidepth(augmentation)
 
-        train_solodepth()
+        #train_solodepth()
         #evaluate_roidepth()
+        evaluate_solodepth()
 
 
 
