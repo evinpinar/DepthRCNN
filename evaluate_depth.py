@@ -1,6 +1,7 @@
 
 
 import numpy as np
+import torch
 # import pandas as pd
 import os
 import cv2
@@ -30,6 +31,29 @@ def compute_errors(gt, pred):
     sq_rel = np.mean(((gt - pred)**2) / gt)
 
     return abs_rel, sq_rel, rmse, rmse_log, a1, a2, a3
+
+def CalculateLosses(pred, gt):
+
+    pred = pred.reshape(-1)
+    gt = gt.reshape(-1)
+
+    # Filtering, similar to the one used in official implementation
+    mask = (gt > 1e-3) & (gt < 80)
+    masked_pred = torch.masked_select(pred, mask)
+    masked_gt = torch.masked_select(gt, mask)
+
+    masked_pred[masked_pred < 1e-3] = 1e-3
+    masked_pred[masked_pred > 80] = 80
+
+    rmse = torch.sqrt(torch.mean((masked_gt-masked_pred)**2)).item()
+    rmse_log = torch.sqrt(((torch.log(masked_gt) - torch.log(masked_pred))**2).mean()).item()
+    abs_rel = torch.mean(torch.abs(masked_gt-masked_pred) / masked_gt).item()
+    sq_rel = torch.mean((masked_gt-masked_pred)**2 / masked_gt).item()
+
+    return [rmse, rmse_log, abs_rel, sq_rel]
+
+
+
 
 
 #print("{:>10}, {:>10}, {:>10}, {:>10}, {:>10}, {:>10}".format('a1', 'a2', 'a3', 'rel', 'rms', 'log_10'))

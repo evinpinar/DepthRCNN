@@ -235,17 +235,17 @@ class NYUDepthDataset(Dataset):
 
 		image, window, scale, padding = utils_original.resize_image(
 			image,
-			min_dim=self.config.IMAGE_MIN_DIM,
+			min_dim=self.config.IMAGE_MAX_DIM,
 			max_dim=self.config.IMAGE_MAX_DIM,
 			padding=self.config.IMAGE_PADDING)
 		depth, _, _, _ = utils_original.resize_depth(
 			depth,
-			min_dim=self.config.IMAGE_MIN_DIM,
+			min_dim=self.config.IMAGE_MAX_DIM,
 			max_dim=self.config.IMAGE_MAX_DIM,
 			padding=self.config.IMAGE_PADDING)
 		thick_edges, _, _, _ = utils_original.resize_depth(
 			thick_edges,
-			min_dim=self.config.IMAGE_MIN_DIM,
+			min_dim=self.config.IMAGE_MAX_DIM,
 			max_dim=self.config.IMAGE_MAX_DIM,
 			padding=self.config.IMAGE_PADDING)
 
@@ -359,15 +359,21 @@ def load_image_gt(config, image_id, image, depth, mask, class_ids, augment=False
 	"""
 	## Load image and mask
 	shape = image.shape
-	image, window, scale, padding, crop = utils.resize_image(
-		image,
-		min_dim=config.IMAGE_MIN_DIM,
-		min_scale=config.IMAGE_MIN_SCALE,
-		max_dim=config.IMAGE_MAX_DIM,
-		mode=config.IMAGE_RESIZE_MODE)
+	#image, window, scale, padding, crop = utils.resize_image(
+	#	image,
+	#	min_dim=config.IMAGE_MIN_DIM,
+	#	min_scale=config.IMAGE_MIN_SCALE,
+	#	max_dim=config.IMAGE_MAX_DIM,
+	#	mode=config.IMAGE_RESIZE_MODE)
 
-	mask = utils.resize_mask(mask, scale, padding, crop)
-	depth = utils.resize_depth(depth, scale, padding, crop)
+	image, window, scale, padding = utils_original.resize_image(
+		image,
+		min_dim=config.IMAGE_MAX_DIM,
+		max_dim=config.IMAGE_MAX_DIM,
+		padding=config.IMAGE_PADDING)
+
+	mask = utils.resize_mask(mask, scale, padding)
+	depth = utils.resize_depth(depth, scale, padding)
 
 	## Random horizontal flips.
 	if augment:

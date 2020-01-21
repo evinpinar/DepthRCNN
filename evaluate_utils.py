@@ -29,8 +29,108 @@ def evaluateDepths(predDepths, gtDepths, printInfo=False):
     if printInfo:
         print(('depth statistics', rel, rel_sqr, log10, rmse, rmse_log, accuracy_1, accuracy_2, accuracy_3))
         pass
+
+    rel = round(rel, 5)
+    rel_sqr = round(rel_sqr, 5)
+    log10 = round(log10, 5)
+    rmse = round(rmse, 5)
+    rmse_log = round(rmse_log, 5)
+    accuracy_1 = round(accuracy_1, 5)
+    accuracy_2 = round(accuracy_2, 5)
+    accuracy_3 = round(accuracy_3, 5)
+
+
     return [rel, rel_sqr, log10, rmse, rmse_log, accuracy_1, accuracy_2, accuracy_3]
 
+
+def l1MaskAcc(pred, gt, mask):
+    return np.sum(np.abs(pred - gt) * mask) / np.clip(mask.sum(), a_min=1, a_max=None)
+
+def absRelAcc(predDepths, gtDepths, masks):
+
+    numPixels = float(masks.sum())
+    rmse = np.sqrt((pow(predDepths - gtDepths, 2) * masks).sum() / numPixels)
+    rmse_log = np.sqrt(
+        (pow(np.log(np.maximum(predDepths, 1e-4)) - np.log(np.maximum(gtDepths, 1e-4)), 2) * masks).sum() / numPixels)
+    log10 = (np.abs(
+        np.log10(np.maximum(predDepths, 1e-4)) - np.log10(np.maximum(gtDepths, 1e-4))) * masks).sum() / numPixels
+    rel = (np.abs(predDepths - gtDepths) / np.maximum(gtDepths, 1e-4) * masks).sum() / numPixels
+    rel_sqr = (pow(predDepths - gtDepths, 2) / np.maximum(gtDepths, 1e-4) * masks).sum() / numPixels
+
+    return [rel, rel_sqr, log10, rmse, rmse_log]
+
+
+def eval_roi_accuracy_fordepthrcnn(gt_dep, pred_depth, rois, masks):
+    '''
+    gt_dep = [640, 640] torch tensor
+    pred_depth= [640, 640] torch tensor
+    rois = [N, 4] torch tensor, N = number of rois
+    masks = [N, 640, 640] torch tensor
+    '''
+    N = rois.shape[0]
+    errs = []
+    for i in range(N):
+        e_roi = 0
+        roi = rois[i].int()
+        mask = masks[i][roi[0]:roi[2], roi[1]:roi[3]]
+        pred_roi_depth = pred_depth[roi[0]:roi[2], roi[1]:roi[3]]
+        gt_roi_depth = gt_dep[roi[0]:roi[2], roi[1]:roi[3]]
+        inds = np.where(mask == 1)
+        if len(inds[0]) != 0:
+            min_depth = torch.min(gt_roi_depth[inds])
+            gt_roi_depth -= min_depth
+            #e_roi = l1LossMask(pred_roi_depth, gt_roi_depth, mask)
+            e_roi = absRelAcc(pred_roi_depth.detach().cpu().numpy(), gt_roi_depth.detach().cpu().numpy(), mask.detach().cpu().numpy())
+            errs.append(e_roi)
+
+    e = np.array(errs).mean(0).tolist()
+    return e
+
+def eval_roi_accuracy(gt_dep, pred_dep, masks):
+    '''
+    gt_dep = 640x640 ground truth depth map
+    pred_dep = 640x640 predicted depth map
+    masks = Nx640x640 masks
+    '''
+    errs = []
+    N = masks.shape[0]
+    for i in range(N):
+        e_roi = absRelAcc(pred_dep, gt_dep, masks[i])
+        errs.append(e_roi)
+    e = np.array(errs).mean(0).tolist()
+    return e
+
+
+# not used this yet
+def roi_accuracy(gt_depths, rois, pred_depths, pred_masks):
+    N = rois.shape[0]
+    errs = []
+    for i in range(N):
+        roi = rois[i]
+        pred_depth = pred_depths[:, :, i][roi[0]:roi[2], roi[1]:roi[3]]
+        mask = pred_masks[:, :, i][roi[0]:roi[2], roi[1]:roi[3]]
+        gt_depth = gt_depths[0][roi[0]:roi[2], roi[1]:roi[3]]
+        inds = np.where(mask == 1)
+        min_depth = np.min(gt_depth[inds])
+        gt_depth -= min_depth
+        e = l1MaskAcc(pred_depth, gt_depth, mask)
+        errs.append(e)
+    return np.mean(errs)
+
+# not used yet
+def evaluteDepths_perROI(gt_depth, pred_depth, pred_masks, detections):
+    errs = []
+    N = detections.shape[1]
+    for i in range(N):
+        class_id = int(detections[0, i, 5])
+        roi = detections[0, i, :4].int()
+        mask = pred_masks[0, i, class_id]
+        pred_area = pred_depth[0][roi[0]:roi[2], roi[1]:roi[3]]
+        gt_area = gt_depth[0][roi[0]:roi[2], roi[1]:roi[3]]
+        print(mask.shape, pred_area.shape, gt_area.shape)
+        e = l1MaskAcc(pred_area, gt_area, mask)
+        errs.append(e)
+    return np.mean(errs)
 
 
 def evaluatePlanesTensor(input_dict, detection_dict, printInfo=False, use_gpu=True):

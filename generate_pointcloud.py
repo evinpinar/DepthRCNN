@@ -114,12 +114,21 @@ if __name__ == '__main__':
     #rgb = cv2.imread("/datawl/CSI/CSI_SVN/Kiras CSISmartCam3D/CSISmartScan3D_Daten/Daten_Testszenen/TUM/freiburg1/rgbd_dataset_freiburg1_xyz/rgb/1305031102.175304.png")
     #depth = cv2.imread("/datawl/CSI/CSI_SVN/Kiras CSISmartCam3D/CSISmartScan3D_Daten/Daten_Testszenen/TUM/freiburg1/rgbd_dataset_freiburg1_xyz/depth/1305031102.160407.png", cv2.CV_LOAD_IMAGE_UNCHANGED)
 
-    rgb_path = "../scannet_rgb.jpg"
-    depth_path = "../scannet_depth_pred.jpg"
+    rgb_path = "../rgb_cham.png"
+    depth_path = "../depth_gt_chamfer.png"
+
+    #rgb_path = "../NYU_chamf/rgb_cham.png"
+    #depth_path = "../NYU_chamf/depth_gt_chamfer.jpg"
+
     print(os.path.exists(rgb_path))
-    print(os.path.abspath(rgb_path))
+    #print(os.path.abspath(rgb_path))
     rgb = cv2.imread(rgb_path)
     depth = cv2.imread(depth_path)
+
+    #rgb = cv2.resize(rgb, (480, 640))
+    #depth = cv2.resize(depth, (480, 640))
+
+
     K = np.matrix([[fx,0,centerX],[0,fy,centerY],[0,0,1]])
     distC = np.array([0.2624,-0.9531,-0.0054,0.0026,1.1633])
     newCameraMatrix = np.empty([3,3])
@@ -127,7 +136,7 @@ if __name__ == '__main__':
     print(rgb.shape)
     print(depth.shape)
 
-    doUndistort = True
+    doUndistort = False
 
     if (doUndistort):
         rgbU = cv2.undistort(rgb, K, distC, None, K)
@@ -135,17 +144,16 @@ if __name__ == '__main__':
     else:
         rgbU = rgb
     points = []
+    depth = depth[:,:,0]
     print("create points")
     for v in range(rgb.shape[0]):
         for u in range(rgb.shape[1]):
             color = rgbU[v,u,:]
             Z = depth[v,u] / scalingFactor
-            if Z==0: continue
             X = (u - centerX) * Z / fx
             Y = (v - centerY) * Z / fy
             points.append("%f %f %f %d %d %d 0\n"%(X,Y,Z,color[2],color[1],color[0]))
-    print("points created: ", points.shape)
-    file = open("../scannet_pred.ply","w")
+    file = open("../gt_cham.ply","w")
     file.write('''ply
 format ascii 1.0
 element vertex %d

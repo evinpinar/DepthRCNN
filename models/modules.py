@@ -181,7 +181,10 @@ def l2LossMask(pred, gt, mask):
     return torch.sum(torch.pow(pred - gt, 2) * mask) / torch.clamp(mask.sum(), min=1)
 
 def l1LossMask(pred, gt, mask):
-    """L1 loss with a mask"""        
+    """L1 loss with a mask"""
+
+    #(np.abs(predDepths - gtDepths) / np.maximum(gtDepths, 1e-4) * masks).sum() / numPixels
+
     return torch.sum(torch.abs(pred - gt) * mask) / torch.clamp(mask.sum(), min=1)
 
 def invertDepth(depth, inverse=False):
@@ -261,8 +264,10 @@ def point_cloud(depth):
     rows, cols = depth.shape
     c, r = torch.arange(cols).unsqueeze(0).cuda().float(), torch.arange(rows).unsqueeze(1).cuda().float()
     z = depth
-    x = z * (c - centerX) / fx
-    y = z * (r - centerY) / fy
+    #x = z * (c - centerX) / fx
+    #y = z * (r - centerY) / fy
+    x = z * (c) / fx
+    y = z * (r) / fy
     return torch.stack([x, y, z], dim=2)
 
 def batch_pairwise_dist(x,y):
@@ -363,37 +368,13 @@ def calculate_chamfer_scene(gt_depth, pred_depth):
     points_gt = point_cloud(gt_depth[0])
     points_pred = point_cloud(pred_depth[0])
 
-    #points_gt = points_gt.reshape(-1, points_gt.shape[-1])
-    #points_pred = points_pred.reshape(-1, points_pred.shape[-1])
-
-    # Sample the points for quick calculation
-    # num_inds = 300000
-    # print(points_gt.shape)
-    # inds = np.random.choice(points_gt.shape, num_inds)
-
-    # print("inds after selection: ", inds[0].shape)
-
-    # points_gt = points_gt[inds-1]
-    # points_pred = points_pred[inds-1]
-
-    # add back batch dimension
-    #points_gt = points_gt.unsqueeze(0)
-    #points_pred = points_pred.unsqueeze(0)
-    # print("shapes: ", points_gt.shape, points_pred.shape)
-
-    # Set nan values to 0
-    #points_gt[torch.isnan(points_gt)] = 0
-    #points_pred[torch.isnan(points_pred)] = 0
-    # print('points_gt: ', points_gt.shape, points_gt[0, 50])
-
-    # print("Calculate chamfer loss...")
-    # calculate the chamfer distance
-    # points_gt = Variable(points_gt, requires_grad=True)
-    # points_pred = Variable(points_pred, requires_grad=True)
+    #print("requires grad gt?: ", points_gt.requires_grad)
+    #print("requires grad pred?: ", points_pred.requires_grad)
 
     # loss = batch_NN_loss(points_gt, points_pred)
     dist1, dist2 = chamfer_dist(points_gt.float(), points_pred.float())
     loss = (torch.mean(dist1)) + (torch.mean(dist2))
+    #loss = (torch.mean(dist2))
 
     # print("loss type: ", loss_sum.dtype)
     return loss
@@ -402,12 +383,14 @@ def calculate_chamfer_scene(gt_depth, pred_depth):
 def chamfer_L1_combined_loss(gt_image, gt_depth, pred_depth, gt_masks, gt_boxes, gt_class_ids):
     rgb = gt_image[0].cpu().numpy().transpose(1, 2, 0)
 
+    print("mask shape", gt_masks.shape)
     # print(rgb.shape)
     # expand the masks to full size, take first ex_i of 100 masks
     ex_i = torch.sum(gt_class_ids[0] != 0)
     expanded_mask = utils.expand_mask(gt_boxes[0].cpu().numpy(), gt_masks[0, :ex_i].cpu().numpy().transpose(1, 2, 0),
                                       rgb.shape)
 
+    print("mask shape after expansion: ", expanded_mask.shape)
     # calculate L1 on background: get background region, call L1
     background = torch.tensor(np.sum(expanded_mask, axis=2)).cuda()
     background = background.unsqueeze(0)
@@ -476,10 +459,13 @@ def calculate_chamfer_masked(gt_image, gt_depth, pred_depth, gt_masks, gt_boxes,
 
     # print(rgb.shape)
     # expand the masks to full size, take first ex_i of 100 masks
+    #print("mask shape", gt_masks.shape)
     ex_i = torch.sum(gt_class_ids[0] != 0)
-    expanded_mask = utils.expand_mask(gt_boxes[0].cpu().numpy(), gt_masks[0, :ex_i].cpu().numpy().transpose(1, 2, 0),
-                                      rgb.shape)
+    #expanded_mask = utils.expand_mask(gt_boxes[0].cpu().numpy(), gt_masks[0, :ex_i].cpu().numpy().transpose(1, 2, 0),
+    #                                  rgb.shape)
 
+    expanded_mask = gt_masks[0].detach().cpu().numpy()
+    #print("mask shape after expansion: ", expanded_mask.shape)
     # print("Calculate point cloud gt...")
     # calculate the points from gt depth
     points_gt = point_cloud(gt_depth[0])
@@ -497,7 +483,7 @@ def calculate_chamfer_masked(gt_image, gt_depth, pred_depth, gt_masks, gt_boxes,
     # calculate the chamfer distance between the masked points
     for i in range(ex_i):
         # print(i)
-        m = expanded_mask[:, :, i]
+        m = expanded_mask[i, :, :]
         inds = np.where(m == True)
 
         if len(inds[0]) == 0:

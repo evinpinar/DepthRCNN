@@ -38,7 +38,13 @@ import cv2
 
 from config import Config
 import utils
+import torch
 
+from skimage import io
+import utils_original
+
+import torch
+import torch.utils.data
 
 ############################################################
 #  Configurations
@@ -92,19 +98,21 @@ class ScannetDataset(utils.Dataset):
         """
         # Add classes. We have only one class to add.
 
-        class_names = ['wall', 'floor', 'cabinet', 'bed', 'chair','sofa', 'table', 'door', 'window', 'bookshelf', 'picture', 'counter', 'blinds', 'desk', 'shelves', 'curtain', 'dresser', 'pillow', 'mirror', 'floo mat', 'clothes', 'ceiling', 'books', 'refridgerator', 'television', 'paper', 'towel', 'showe curtain', 'box', 'whiteboard', 'person', 'nigh stand', 'toilet', 'sink', 'lamp', 'bathtub', 'bag', 'otherstructure', 'otherfurniture',
+        class_names = ['wall', 'floor', 'cabinet', 'bed', 'chair', 'sofa', 'table', 'door', 'window', 'bookshelf',
+                       'picture', 'counter', 'blinds', 'desk', 'shelves', 'curtain', 'dresser', 'pillow', 'mirror',
+                       'floo mat', 'clothes', 'ceiling', 'books', 'refridgerator', 'television', 'paper', 'towel',
+                       'showe curtain', 'box', 'whiteboard', 'person', 'nigh stand', 'toilet', 'sink', 'lamp',
+                       'bathtub', 'bag', 'otherstructure', 'otherfurniture',
                        'otherprop']
 
         n = len(class_names)
         for i in range(n):
-            self.add_class("scannet", i+1, class_names[i])
+            self.add_class("scannet", i + 1, class_names[i])
 
         # Train or validation dataset?
         assert subset in ["train", "val", "test"]
 
-
-        #scannet_data = '/home/orneke/SCANNET/'
-
+        # scannet_data = '/home/orneke/SCANNET/'
 
         if subset == "train":
             file1 = open(scannet_data + 'scannetv1_train.txt', "r")
@@ -120,24 +128,24 @@ class ScannetDataset(utils.Dataset):
         scenes = [scannet_data + val.strip('\n') + "/" for val in scenes]
         # print(len(scenes))
 
-        #if subset == "train":
+        # if subset == "train":
         #    scannet_data = scannet_data + 'scannet_frames_25k/'
-        #elif subset == 'val' or subset == 'test':
+        # elif subset == 'val' or subset == 'test':
         #    scannet_data = scannet_data + 'scannet_frames_test/'
-        #scenes = []
-        #for f_name in os.listdir(scannet_data):
+        # scenes = []
+        # for f_name in os.listdir(scannet_data):
         #    if f_name.startswith('scene'):
         #        dir_name = scannet_data + f_name + '/'
         #        scenes.append(dir_name)
-        #print(len(scenes))
+        # print(len(scenes))
 
         i = 0
         for s in scenes:
-            for img in os.listdir(s+'color/'):
+            for img in os.listdir(s + 'color/'):
                 try:
                     id = img.split('.')[0]
                     image_path = s + 'color/' + img
-                    depth_path = s + 'depth/'+ str(id) + '.png'
+                    depth_path = s + 'depth/' + str(id) + '.png'
                     instance_path = s + 'instance/' + str(id) + '.png'
                     label_path = s + 'label/' + str(id) + '.png'
                     height, width = 968, 1296
@@ -156,7 +164,6 @@ class ScannetDataset(utils.Dataset):
                 except:
                     print("Cannot read data ")
                     continue
-
 
     def load_mask(self, image_id):
         """Generate instance masks for an image.
@@ -180,10 +187,9 @@ class ScannetDataset(utils.Dataset):
 
         self.image_info[image_id]['class_ids'] = class_ids
 
-        #? masks = masks.transpose([1, 2, 0])
+        # ? masks = masks.transpose([1, 2, 0])
 
         return masks.astype(np.bool), class_ids
-
 
     def image_reference(self, image_id):
         """Return the path of the image."""
@@ -194,10 +200,136 @@ class ScannetDataset(utils.Dataset):
             super(self.__class__, self).image_reference(image_id)
 
 
+class ScannetDepthDataset(torch.utils.data.Dataset):
+
+    def __init__(self, subset, config, scannet_data, augmentation=None):
+
+        self.config = config
+        self.augmentation = augmentation
+
+        assert subset in ["train", "val", "test"]
+
+        # scannet_data = '/home/orneke/SCANNET/'
+
+        if subset == "train":
+            file1 = open(scannet_data + 'scannetv1_train.txt', "r")
+            scenes = file1.readlines()
+        elif subset == 'val':
+            file1 = open(scannet_data + 'scannetv1_val.txt', "r")
+            scenes = file1.readlines()
+        elif subset == 'test':
+            file1 = open(scannet_data + 'scannetv1_test.txt', "r")
+            scenes = file1.readlines()
+
+        scannet_data = scannet_data + 'scannet_frames_25k/'
+        scenes = [scannet_data + val.strip('\n') + "/" for val in scenes]
+
+        print("Extraction from numpy files...")
+        imgs = []
+        depths = []
+        image_ids = []
+        labels = []
+
+        i = 0
+        for s in scenes:
+            for img in os.listdir(s + 'color/'):
+                try:
+                    id = img.split('.')[0]
+                    image_path = s + 'color/' + img
+                    depth_path = s + 'depth/' + str(id) + '.png'
+                    #instance_path = s + 'instance/' + str(id) + '.png'
+                    label_path = s + 'label/' + str(id) + '.png'
+                    #height, width = 968, 1296
+                    image_ids.append(i)
+                    imgs.append(image_path)
+                    depths.append(depth_path)
+                    labels.append(label_path)
+                    i += 1
+                except:
+                    print("Cannot read data ")
+                    continue
+
+        self.image_ids = image_ids
+        self.images = imgs
+        self.depths = depths
+        self.labels = labels
+
+    def __getitem__(self, image_id):
+
+        image = io.imread(self.images[image_id])
+        depth = io.imread(self.depths[image_id])
+        label = io.imread(self.labels[image_id])
+
+        image, window, scale, padding = utils_original.resize_image(
+            image,
+            min_dim=self.config.IMAGE_MIN_DIM,
+            max_dim=self.config.IMAGE_MAX_DIM,
+            padding=self.config.IMAGE_PADDING)
+        depth, _, _, _ = utils_original.resize_depth(
+            depth,
+            min_dim=self.config.IMAGE_MIN_DIM,
+            max_dim=self.config.IMAGE_MAX_DIM,
+            padding=self.config.IMAGE_PADDING)
+        label, _, _, _ = utils_original.resize_depth(
+            label,
+            min_dim=self.config.IMAGE_MIN_DIM,
+            max_dim=self.config.IMAGE_MAX_DIM,
+            padding=self.config.IMAGE_PADDING)
+
+
+        # if self.augment:
+
+        # Horizontal flip
+        # if np.random.randint(0, 1):
+        #	image = np.fliplr(image)
+        #	depth = np.fliplr(depth)
+        #	pass
+        # pass
+
+        if self.augmentation:
+            import imgaug
+
+            # Augmenters that are safe to apply to masks
+            # Some, such as Affine, have settings that make them unsafe, so always
+            # test your augmentation on masks
+            MASK_AUGMENTERS = ["Sequential", "SomeOf", "OneOf", "Sometimes",
+                               "Fliplr", "Flipud", "CropAndPad",
+                               "Affine", "PiecewiseAffine"]
+
+            def hook(images, augmenter, parents, default):
+                """Determines which augmenters to apply to masks."""
+                return augmenter.__class__.__name__ in MASK_AUGMENTERS
+
+            # Store shapes before augmentation to compare
+            image_shape = image.shape
+            depth_shape = depth.shape
+            label_shape = label.shape
+            # Make augmenters deterministic to apply similarly to images and masks
+            det = self.augmentation.to_deterministic()
+            image = det.augment_image(image)
+            depth = det.augment_image(depth, hooks=imgaug.HooksImages(activator=hook))
+            label = det.augment_image(label, hooks=imgaug.HooksImages(activator=hook))
+            # Verify that shapes didn't change
+            assert image.shape == image_shape, "Augmentation shouldn't change image size"
+            assert depth.shape == depth_shape, "Augmentation shouldn't change depth size"
+            assert label.shape == depth_shape, "Augmentation shouldn't change label size"
+
+        image = utils.mold_image(image.astype(np.float32), self.config)
+        image = image.transpose((2, 0, 1)).astype(np.float32)
+        depth = depth.astype(np.float32)/1000
+        label = label.astype(np.float32)
+
+
+        info = [image, depth, label]
+
+        return info
+
+    def __len__(self):
+        return len(self.image_ids)
 
 
 def getInstanceMasks(label, instance):
-	'''
+    '''
 	Extracts the binary masks for each instance given in a labeled image.
 
 	:param label: labels matrix
@@ -209,20 +341,20 @@ def getInstanceMasks(label, instance):
 	:rtype:
 	'''
 
-	H = instance.shape[0]
-	W = instance.shape[1]
+    H = instance.shape[0]
+    W = instance.shape[1]
 
-	pairs = np.unique(np.array([label.flatten(), instance.flatten()]), axis=1)
-	pairs = np.transpose(pairs)
-	# Remove zero sum rows
-	pairs = pairs[~np.all(pairs == 0, axis=1)]
+    pairs = np.unique(np.array([label.flatten(), instance.flatten()]), axis=1)
+    pairs = np.transpose(pairs)
+    # Remove zero sum rows
+    pairs = pairs[~np.all(pairs == 0, axis=1)]
 
-	N = pairs.shape[0]
-	instanceMasks = np.zeros([H, W, N])
-	instanceLabels = np.zeros([N])
+    N = pairs.shape[0]
+    instanceMasks = np.zeros([H, W, N])
+    instanceLabels = np.zeros([N])
 
-	for i in range(N):
-		instanceMasks[:, :, i] = np.logical_and(label == pairs[i, 0], instance == pairs[i, 1])
-		instanceLabels[i] = pairs[i, 0]
+    for i in range(N):
+        instanceMasks[:, :, i] = np.logical_and(label == pairs[i, 0], instance == pairs[i, 1])
+        instanceLabels[i] = pairs[i, 0]
 
-	return instanceMasks, instanceLabels.astype(np.int32)
+    return instanceMasks, instanceLabels.astype(np.int32)

@@ -181,31 +181,32 @@ class FPN(nn.Module):
         )
 
     def forward(self, x):
-        #print(" FPN start: ", x.shape)
+        # print("--- Feature Pyramid Network ----")
+        # print(" FPN start: ", x.shape)
         x = self.C1(x)
-        #print(" C1 first conv: ", x.shape)
+        # print(" C1 first conv: ", x.shape)
         x = self.C2(x)
-        #print(" C2 second conv: ", x.shape)
+        # print(" C2 second conv: ", x.shape)
         c2_out = x
         x = self.C3(x)
-        #print(" C3 third conv: ", x.shape)
+        # print(" C3 third conv: ", x.shape)
         c3_out = x
         x = self.C4(x)
-        #print(" C4 fourth conv: ", x.shape)
+        # print(" C4 fourth conv: ", x.shape)
         c4_out = x
         x = self.C5(x)
-        #print(" C5 fifty conv: ", x.shape)
+        # print(" C5 fifty conv: ", x.shape)
 
         p5_out = self.P5_conv1(x)
-        #print(" FPN5 second conv: ", x.shape)
+        # print(" FPN5 second conv: ", x.shape)
 
         if self.bilinear_upsampling:
             p4_out = self.P4_conv1(c4_out) + F.upsample(p5_out, scale_factor=2, mode='bilinear')
-            #print(" FPN4 second conv: ", p4_out.shape)
+            # print(" FPN4 second conv: ", p4_out.shape)
             p3_out = self.P3_conv1(c3_out) + F.upsample(p4_out, scale_factor=2, mode='bilinear')
-            #print(" FPN3 second conv: ", p3_out.shape)
+            # print(" FPN3 second conv: ", p3_out.shape)
             p2_out = self.P2_conv1(c2_out) + F.upsample(p3_out, scale_factor=2, mode='bilinear')
-            #print(" FPN2 second conv: ", p2_out.shape)
+            # print(" FPN2 second conv: ", p2_out.shape)
         else:
             p4_out = self.P4_conv1(c4_out) + F.upsample(p5_out, scale_factor=2)
             p3_out = self.P3_conv1(c3_out) + F.upsample(p4_out, scale_factor=2)
@@ -213,11 +214,11 @@ class FPN(nn.Module):
             pass
 
         p5_out = self.P5_conv2(p5_out)
-        #print(" FPN5 second conv2: ", p5_out.shape)
+        # print(" FPN5 second conv2: ", p5_out.shape)
         p4_out = self.P4_conv2(p4_out)
-        #print(" FPN4 second conv2: ", p4_out.shape)
+        # print(" FPN4 second conv2: ", p4_out.shape)
         p3_out = self.P3_conv2(p3_out)
-        #print(" FPN3 second conv2: ", p3_out.shape)
+        # print(" FPN3 second conv2: ", p3_out.shape)
         p2_out = self.P2_conv2(p2_out)
         # print(" FPN2 second conv2: ", p2_out.shape)
 
@@ -225,6 +226,7 @@ class FPN(nn.Module):
         ## subsampling from P5 with stride of 2.
         p6_out = self.P6(p5_out)
 
+        # print("--------------")
         return [p2_out, p3_out, p4_out, p5_out, p6_out]
 
 
@@ -1504,7 +1506,6 @@ class Classifier(nn.Module):
 
         self.linear_class = nn.Linear(1024, num_classes)
         self.softmax = nn.Softmax(dim=1)
-
         self.linear_bbox = nn.Linear(1024, num_classes * 4)
 
     def forward(self, x, rois, n_rois_per_sample):
@@ -2126,7 +2127,7 @@ def compute_depth_loss(target_depth, pred_depth, config, edges = None):
     if config.DEPTH_LOSS == 'CHAMFER':
         depth_loss = calculate_chamfer_scene(target_depth[:, 80:560], pred_depth[:, 80:560])
     if config.CHAM_LOSS:
-        depth_loss += 10*calculate_chamfer_scene(target_depth[:, 80:560], pred_depth[:, 80:560])
+        depth_loss += config.CHAM_WEIGHT*calculate_chamfer_scene(target_depth[:, 80:560], pred_depth[:, 80:560])
     if config.GRAD_LOSS:
         loss_grad = compute_grad_depth_loss(target_depth[:, 80:560], pred_depth[:, 80:560])
         depth_loss += loss_grad
@@ -3505,11 +3506,12 @@ class MaskRCNN(nn.Module):
             log("Epoch {}/{}.".format(epoch, epochs))
 
             # Training
-            loss, loss_rpn_class, loss_rpn_bbox, loss_mrcnn_class, loss_mrcnn_bbox, loss_mrcnn_mask, loss_depth = self.train_epoch(
+
+            loss, loss_rpn_class, loss_rpn_bbox, loss_mrcnn_class, loss_mrcnn_bbox, loss_mrcnn_mask, loss_depth, loss_plane = self.train_epoch(
                 train_generator, optimizer, self.config.STEPS_PER_EPOCH, depth_weight)
 
             # Validation
-            val_loss, val_loss_rpn_class, val_loss_rpn_bbox, val_loss_mrcnn_class, val_loss_mrcnn_bbox, val_loss_mrcnn_mask, val_loss_depth = self.valid_epoch(
+            val_loss, val_loss_rpn_class, val_loss_rpn_bbox, val_loss_mrcnn_class, val_loss_mrcnn_bbox, val_loss_mrcnn_mask, val_loss_depth, val_loss_plane = self.valid_epoch(
                 val_generator, self.config.VALIDATION_STEPS, depth_weight)
 
             # Statistics
@@ -3682,7 +3684,7 @@ class MaskRCNN(nn.Module):
             gt_boxes = inputs[5]
             gt_masks = inputs[6]
             gt_depths = inputs[7]
-            gt_plane = inputs[8]
+            gt_plane = torch.zeros(1)
 
             # image_metas as numpy array
             # image_metas = image_metas.numpy()
@@ -3783,7 +3785,7 @@ class MaskRCNN(nn.Module):
                 gt_boxes = inputs[5]
                 gt_masks = inputs[6]
                 gt_depths = inputs[7]
-                gt_plane = inputs[8]
+                gt_plane = torch.zeros(1)
 
                 # image_metas as numpy array
                 # image_metas = image_metas.numpy()
@@ -4601,7 +4603,7 @@ class DepthCNN(nn.Module):
                 #print("pred depth shape: ", pred_depth.shape, gt_depths.shape)
                 l1 = compute_depth_loss_L1(pred_depth[:, 80:560], gt_depths[:, 80:560], self.config.DEPTH_THRESHOLD)
 
-            loss = chamf*10+l1
+            loss = chamf*100+l1
 
             # Backpropagation
             loss.backward()
@@ -4720,7 +4722,7 @@ class DepthCNN(nn.Module):
                                                      gt_class_ids).float().cuda()
                     l1 = compute_depth_loss_L1(pred_depth[:, 80:560], gt_depths[:, 80:560], self.config.DEPTH_THRESHOLD)
 
-                loss = chamf * 10 + l1
+                loss = chamf * 100 + l1
 
                 # Progress
                 if step % 100 == 0:
