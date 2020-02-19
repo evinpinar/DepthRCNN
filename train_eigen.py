@@ -397,7 +397,7 @@ def evalScannet():
     model = Net()
     model.cuda()
 
-    checkpoint_dir = '../data/checkpoints/eigen20200118T1942/eigen_nyu_0020.pth'
+    checkpoint_dir = '../data/checkpoints/eigen20200129T0152/eigen_nyu_0020.pth'
     checkpoint = torch.load(checkpoint_dir)
     model.load_state_dict(checkpoint['model_state_dict'])
 
@@ -583,4 +583,4 @@ def evalScannet2():
 
 
 if __name__ == '__main__':
-    trainScannet()
+    evalScannet()

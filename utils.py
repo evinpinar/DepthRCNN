@@ -14,12 +14,13 @@ import torch
 import cv2
 import itertools
 from skimage.color import gray2rgb
-#import skimage.io
+import skimage
 from skimage import io
 from skimage import transform
 import scipy.misc
 import scipy.ndimage
 
+from distutils.version import LooseVersion
 import warnings
 #io.use_plugin('matplotlib')
 
@@ -796,8 +797,9 @@ def minimize_mask(bbox, mask, mini_shape):
         if m.size == 0:
             raise Exception("Invalid bounding box with area of zero")
         # Resize with bilinear interpolation
-        #m = transform.resize(m, mini_shape, order=1, mode="constant")
-        m = transform.resize(m, mini_shape, order=1)
+        #m = scipy.misc.imresize(m.astype(float), mini_shape, interp='bilinear')
+       # m = transform.resize(m, mini_shape, order=1, mode="constant",  anti_aliasing=True)
+        m = resize(m, mini_shape)
         mini_mask[:, :, i] = np.around(m).astype(np.bool)
     return mini_mask
 
@@ -837,7 +839,8 @@ def minimize_depth(bbox, depth, mini_shape):
         d = d[y1:y2, x1:x2]
         if d.size == 0:
             raise Exception("Invalid bounding box with area of zero")
-        d = transform.resize(d, mini_shape, order=1)
+        #d = transform.resize(d, mini_shape, order=1)
+        d = resize(d, mini_shape)
         # d = cv2.resize(d, mini_shape, interpolation=cv2.INTER_NEAREST)
         # m = cv2.resize(depth[y1:y2, x1:x2], mini_shape, interpolation=cv2.INTER_NEAREST)
         mini_depth[:, :, i] = d
@@ -893,6 +896,28 @@ def minimize_normal(bbox, normal, mini_shape):
     return mini_normal
 
 
+def resize(image, output_shape, order=1, mode='constant', cval=0, clip=True,
+           preserve_range=False, anti_aliasing=False, anti_aliasing_sigma=None):
+    """A wrapper for Scikit-Image resize().
+    Scikit-Image generates warnings on every call to resize() if it doesn't
+    receive the right parameters. The right parameters depend on the version
+    of skimage. This solves the problem by using different parameters per
+    version. And it provides a central place to control resizing defaults.
+    """
+    if LooseVersion(skimage.__version__) >= LooseVersion("0.14"):
+        # New in 0.14: anti_aliasing. Default it to False for backward
+        # compatibility with skimage 0.13.
+        return skimage.transform.resize(
+            image, output_shape,
+            order=order, mode=mode, cval=cval, clip=clip,
+            preserve_range=preserve_range, anti_aliasing=anti_aliasing,
+            anti_aliasing_sigma=anti_aliasing_sigma)
+    else:
+        return skimage.transform.resize(
+            image, output_shape,
+            order=order, mode=mode, cval=cval, clip=clip,
+            preserve_range=preserve_range)
+
 def expand_mask(bbox, mini_mask, image_shape):
     """Resizes mini masks back to image size. Reverses the change
 	of minimize_mask().
@@ -905,7 +930,7 @@ def expand_mask(bbox, mini_mask, image_shape):
         h = y2 - y1
         w = x2 - x1
         # Resize with bilinear interpolation
-        m = transform.resize(m, (h, w), order=1, mode="constant")
+        m = resize(m, (h, w))
         mask[y1:y2, x1:x2, i] = np.around(m).astype(np.bool)
     return mask
 

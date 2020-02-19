@@ -30,21 +30,86 @@ def evaluateDepths(predDepths, gtDepths, printInfo=False):
         print(('depth statistics', rel, rel_sqr, log10, rmse, rmse_log, accuracy_1, accuracy_2, accuracy_3))
         pass
 
-    rel = round(rel, 5)
-    rel_sqr = round(rel_sqr, 5)
-    log10 = round(log10, 5)
-    rmse = round(rmse, 5)
-    rmse_log = round(rmse_log, 5)
-    accuracy_1 = round(accuracy_1, 5)
-    accuracy_2 = round(accuracy_2, 5)
-    accuracy_3 = round(accuracy_3, 5)
+    #rel = round(rel, 5)
+    #rel_sqr = round(rel_sqr, 5)
+    #log10 = round(log10, 5)
+    #rmse = round(rmse, 5)
+    #rmse_log = round(rmse_log, 5)
+    #accuracy_1 = round(accuracy_1, 5)
+    #accuracy_2 = round(accuracy_2, 5)
+    #accuracy_3 = round(accuracy_3, 5)
 
 
     return [rel, rel_sqr, log10, rmse, rmse_log, accuracy_1, accuracy_2, accuracy_3]
 
 
+def evaluateDepthsTrue(predDepths, gtDepths, masks=None, printInfo=False):
+    """Evaluate depth reconstruction accuracy"""
+
+    if isinstance(masks, type(None)):
+        masks = gtDepths > 1e-4
+
+    numPixels = float(masks.sum())
+
+    rmse = np.sqrt((pow(predDepths - gtDepths, 2) * masks).sum() / numPixels)
+    rmse_log = np.sqrt(
+        (pow(np.log(np.maximum(predDepths, 1e-4)) - np.log(np.maximum(gtDepths, 1e-4)), 2) * masks).sum() / numPixels)
+    log10 = (np.abs(
+        np.log10(np.maximum(predDepths, 1e-4)) - np.log10(np.maximum(gtDepths, 1e-4))) * masks).sum() / numPixels
+    rel = (np.abs(predDepths - gtDepths) / np.maximum(gtDepths, 1e-4) * masks).sum() / numPixels
+    rel_sqr = (pow(predDepths - gtDepths, 2) / np.maximum(gtDepths, 1e-4) * masks).sum() / numPixels
+    deltas = np.maximum(predDepths / np.maximum(gtDepths, 1e-4), gtDepths / np.maximum(predDepths, 1e-4)) + (
+                1 - masks.astype(np.float32)) * 10000
+    accuracy_1 = (deltas < 1.25).sum() / numPixels
+    accuracy_2 = (deltas < pow(1.25, 2)).sum() / numPixels
+    accuracy_3 = (deltas < pow(1.25, 3)).sum() / numPixels
+    if printInfo:
+        print(('depth statistics', rel, rel_sqr, log10, rmse, rmse_log, accuracy_1, accuracy_2, accuracy_3))
+        pass
+
+    if numPixels == 0:
+        print(('Zero mask depth statistics', rel, rel_sqr, log10, rmse, rmse_log, accuracy_1, accuracy_2, accuracy_3))
+
+    return [rel, rel_sqr, log10, rmse, rmse_log, accuracy_1, accuracy_2, accuracy_3, numPixels]
+
+
 def l1MaskAcc(pred, gt, mask):
     return np.sum(np.abs(pred - gt) * mask) / np.clip(mask.sum(), a_min=1, a_max=None)
+
+def evaluateMaskedRegions(predDepths, gtDepths, masks):
+
+    # mask shape is same with image shape (and depth map shape), 480x640
+
+    # Number of masks
+    N = masks.shape[2]
+    errors = []
+    num_pixels = []
+    for i in range(N):
+        mask = masks[80:560,:,i]
+        if float(mask.sum()) != 0:
+            err = evaluateDepthsTrue(predDepths, gtDepths, mask)
+            errors.append(err[:-1])
+            num_pixels.append(err[-1])
+
+    # print("eval true, fin: ", N, len(errors))
+    # errors = [8 x N]
+    # num_pixels = [N]
+    return errors, num_pixels
+
+def evaluateRois(predDepths, gtDepths):
+
+    # Select the detected rois only
+
+    # number of detected rois
+    N = gtDepths.shape[1]
+    errors = []
+    num_pixels = []
+    for i in range(N):
+        err = evaluateDepthsTrue(predDepths[i], gtDepths[i])
+        errors.append(err[:-1])
+        num_pixels.append(err[-1])
+
+    return errors, num_pixels
 
 def absRelAcc(predDepths, gtDepths, masks):
 
@@ -99,7 +164,6 @@ def eval_roi_accuracy(gt_dep, pred_dep, masks):
         errs.append(e_roi)
     e = np.array(errs).mean(0).tolist()
     return e
-
 
 # not used this yet
 def roi_accuracy(gt_depths, rois, pred_depths, pred_masks):

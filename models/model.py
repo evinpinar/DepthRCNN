@@ -1537,7 +1537,6 @@ class Classifier(nn.Module):
         # print(" ==== GOOD BYE! ==== ")
         return [mrcnn_class_logits, mrcnn_probs, mrcnn_bbox]
 
-
 class Mask(nn.Module):
     def __init__(self, config, depth, pool_size, image_shape, num_classes):
         super(Mask, self).__init__()
@@ -2350,7 +2349,12 @@ def load_image_gt_depth(dataset, config, image_id, augment=False, augmentation=N
         min_scale=config.IMAGE_MIN_SCALE,
         max_dim=config.IMAGE_MAX_DIM,
         mode=config.IMAGE_RESIZE_MODE)
-    depth = utils.resize_depth(depth, scale, padding, crop)
+    depth, _, _, _, _ = resize_depth_image(
+        depth,
+        min_dim=config.IMAGE_MIN_DIM,
+        min_scale=config.IMAGE_MIN_SCALE,
+        max_dim=config.IMAGE_MAX_DIM,
+        mode=config.IMAGE_RESIZE_MODE)
 
 
     # Random horizontal flips.
@@ -2951,40 +2955,40 @@ def data_generator_onlydepth(dataset, config, shuffle=True, augment=False, augme
 
             # If the image source is not to be augmented pass None as augmentation
             if dataset.image_info[image_id]['source'] in no_augmentation_sources:
-                image, image_meta, gt_class_ids, gt_boxes, gt_masks, gt_depth, gt_normal = \
-                    load_image_gt(dataset, config, image_id, augment=augment,
-                                  use_mini_mask=False)
+                #image, image_meta, gt_class_ids, gt_boxes, gt_masks, gt_depth, gt_normal = \
+                #    load_image_gt(dataset, config, image_id, augment=augment,
+                #                  use_mini_mask=False)
+
+                image, gt_depth = load_image_gt_depth(dataset, config, image_id, augment=augment, use_mini_mask=False)
 
             else:
-                image, image_meta, gt_class_ids, gt_boxes, gt_masks, gt_depth, gt_normal = \
-                    load_image_gt(dataset, config, image_id, augment=augment, augmentation=augmentation,
-                                  use_mini_mask=False)
+                image, gt_depth = load_image_gt_depth(dataset, config, image_id, use_mini_mask=False)
 
             # Skip images that have no instances. This can happen in cases
             # where we train on a subset of classes and the image doesn't
             # have any of the classes we care about.
-            if not np.any(gt_class_ids > 0):
-                continue
+            #if not np.any(gt_class_ids > 0):
+            #    continue
 
             # Init batch arrays
             if b == 0:
-                batch_image_meta = np.zeros(
-                    (batch_size,) + image_meta.shape, dtype=image_meta.dtype)
+                #batch_image_meta = np.zeros(
+                #    (batch_size,) + image_meta.shape, dtype=image_meta.dtype)
                 batch_images = np.zeros(
                     (batch_size,) + image.shape, dtype=np.float32)
                 batch_depth = np.zeros(
                     (batch_size,) + gt_depth.shape, dtype=np.float32)
 
             # If more instances than fits in the array, sub-sample from them.
-            if gt_boxes.shape[0] > config.MAX_GT_INSTANCES:
-                ids = np.random.choice(
-                    np.arange(gt_boxes.shape[0]), config.MAX_GT_INSTANCES, replace=False)
-                gt_class_ids = gt_class_ids[ids]
-                gt_boxes = gt_boxes[ids]
-                gt_masks = gt_masks[:, :, ids]
+            #if gt_boxes.shape[0] > config.MAX_GT_INSTANCES:
+            #    ids = np.random.choice(
+            #        np.arange(gt_boxes.shape[0]), config.MAX_GT_INSTANCES, replace=False)
+            #    gt_class_ids = gt_class_ids[ids]
+            #    gt_boxes = gt_boxes[ids]
+            #    gt_masks = gt_masks[:, :, ids]
 
             # Add to batch
-            batch_image_meta[b] = image_meta
+            #batch_image_meta[b] = image_meta
             batch_images[b] = mold_image(image.astype(np.float32), config)
             batch_depth[b] = gt_depth.astype(np.float32)
             b += 1
@@ -2994,7 +2998,6 @@ def data_generator_onlydepth(dataset, config, shuffle=True, augment=False, augme
                 # depth = np.zeros(1)
 
                 yield [torch.from_numpy(batch_images.transpose(0, 3, 1, 2)),
-                       torch.from_numpy(batch_image_meta),
                        torch.from_numpy(batch_depth.astype(np.float32))]
 
                 # inputs = [batch_images, batch_image_meta, batch_rpn_match, batch_rpn_bbox,
@@ -4016,7 +4019,7 @@ class DepthCNN(nn.Module):
         ## Bottom-up Layers
         ## Returns a list of the last layers of each stage, 5 in total.
         ## Don't create the thead (stage 5), so we pick the 4th item in the list.
-        resnet = ResNet("resnet50", stage5=True, numInputChannels=config.NUM_INPUT_CHANNELS)
+        resnet = ResNet("resnet101", stage5=True, numInputChannels=config.NUM_INPUT_CHANNELS)
         C1, C2, C3, C4, C5 = resnet.stages()
 
         ## Top-down Layers
@@ -4123,7 +4126,7 @@ class DepthCNN(nn.Module):
         """Modified version of the correspoding Keras function with
 		the addition of multi-GPU support and the ability to exclude
 		some layers from loading.
-		exlude: list of layer names to excluce
+		exlude: list of layer names to exclude
 		"""
         if os.path.exists(filepath):
             state_dict = torch.load(filepath)

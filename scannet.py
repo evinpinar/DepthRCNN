@@ -110,23 +110,31 @@ class ScannetDataset(utils.Dataset):
             self.add_class("scannet", i + 1, class_names[i])
 
         # Train or validation dataset?
-        assert subset in ["train", "val", "test"]
+        assert subset in ["train", "val", "test", "robtest"]
 
         # scannet_data = '/home/orneke/SCANNET/'
 
         if subset == "train":
             file1 = open(scannet_data + 'scannetv1_train.txt', "r")
             scenes = file1.readlines()
+            scannet_data = scannet_data + 'scannet_frames_25k/'
         elif subset == 'val':
             file1 = open(scannet_data + 'scannetv1_val.txt', "r")
             scenes = file1.readlines()
+            scannet_data = scannet_data + 'scannet_frames_25k/'
         elif subset == 'test':
             file1 = open(scannet_data + 'scannetv1_test.txt', "r")
             scenes = file1.readlines()
+            scannet_data = scannet_data + 'scannet_frames_25k/'
+        elif subset == 'robtest':
+            file1 = open(scannet_data + 'scannet_test_rob.txt', "r")
+            scenes = file1.readlines()
+            scannet_data = scannet_data + 'scannet_frames_test/'
 
-        scannet_data = scannet_data + 'scannet_frames_25k/'
+
+        print(len(scenes), scenes[0])
         scenes = [scannet_data + val.strip('\n') + "/" for val in scenes]
-        # print(len(scenes))
+        print(len(scenes))
 
         # if subset == "train":
         #    scannet_data = scannet_data + 'scannet_frames_25k/'
