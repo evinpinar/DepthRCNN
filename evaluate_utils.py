@@ -58,6 +58,7 @@ def evaluateDepthsTrue(predDepths, gtDepths, masks=None, printInfo=False):
         np.log10(np.maximum(predDepths, 1e-4)) - np.log10(np.maximum(gtDepths, 1e-4))) * masks).sum() / numPixels
     rel = (np.abs(predDepths - gtDepths) / np.maximum(gtDepths, 1e-4) * masks).sum() / numPixels
     rel_sqr = (pow(predDepths - gtDepths, 2) / np.maximum(gtDepths, 1e-4) * masks).sum() / numPixels
+
     deltas = np.maximum(predDepths / np.maximum(gtDepths, 1e-4), gtDepths / np.maximum(predDepths, 1e-4)) + (
                 1 - masks.astype(np.float32)) * 10000
     accuracy_1 = (deltas < 1.25).sum() / numPixels
@@ -86,30 +87,39 @@ def evaluateMaskedRegions(predDepths, gtDepths, masks):
     num_pixels = []
     for i in range(N):
         mask = masks[80:560,:,i]
-        if float(mask.sum()) != 0:
+        depth_mask = gtDepths > 1e-4
+        mask = np.logical_and(depth_mask, mask)
+        pix_sum = float(mask.sum())
+        if pix_sum != 0:
             err = evaluateDepthsTrue(predDepths, gtDepths, mask)
             errors.append(err[:-1])
-            num_pixels.append(err[-1])
+            num_pixels.append(pix_sum)
 
     # print("eval true, fin: ", N, len(errors))
     # errors = [8 x N]
     # num_pixels = [N]
+    #print(errors)
     return errors, num_pixels
 
-def evaluateRois(predDepths, gtDepths):
+def evaluateRoiDepths(predDepths, gtDepths):
 
-    # Select the detected rois only
+    # Evaluates the 56x56 roi heads only
+    # R x 56 x 56 inputs
 
-    # number of detected rois
-    N = gtDepths.shape[1]
+    R = gtDepths.shape[0]
     errors = []
     num_pixels = []
-    for i in range(N):
-        err = evaluateDepthsTrue(predDepths[i], gtDepths[i])
-        errors.append(err[:-1])
-        num_pixels.append(err[-1])
+    for i in range(R):
+        depth_mask = gtDepths[i] > 1e-4
+        pix_sum = float(depth_mask.sum())
+        if pix_sum != 0:
+            err = evaluateDepthsTrue(predDepths[i], gtDepths[i], depth_mask)
+            errors.append(err[:-1])
+            num_pixels.append(pix_sum)
 
     return errors, num_pixels
+
+### Below not used until ...
 
 def absRelAcc(predDepths, gtDepths, masks):
 
@@ -165,7 +175,7 @@ def eval_roi_accuracy(gt_dep, pred_dep, masks):
     e = np.array(errs).mean(0).tolist()
     return e
 
-# not used this yet
+
 def roi_accuracy(gt_depths, rois, pred_depths, pred_masks):
     N = rois.shape[0]
     errs = []
@@ -181,7 +191,7 @@ def roi_accuracy(gt_depths, rois, pred_depths, pred_masks):
         errs.append(e)
     return np.mean(errs)
 
-# not used yet
+
 def evaluteDepths_perROI(gt_depth, pred_depth, pred_masks, detections):
     errs = []
     N = detections.shape[1]
@@ -196,6 +206,7 @@ def evaluteDepths_perROI(gt_depth, pred_depth, pred_masks, detections):
         errs.append(e)
     return np.mean(errs)
 
+### Until HERE!
 
 def evaluatePlanesTensor(input_dict, detection_dict, printInfo=False, use_gpu=True):
     """Evaluate plane detection accuracy in terms of Average Precision"""

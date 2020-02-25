@@ -296,7 +296,6 @@ def shift_depth_target(target_depth, thresh=0.2):
             shifts[i, j] = min_val
             target_depth[i, j] -= min_val
 
-
     #print("shifts shape: ", shifts.shape)
 
     return target_depth, shifts
