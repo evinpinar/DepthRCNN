@@ -94,7 +94,7 @@ def train_maskrcnn(augmentation=None, depth_weight=0):
 def train_depth(augmentation=None):
 
     config = nyu.NYUConfig()
-    path_to_dataset = '../NYU_data'
+    path_to_dataset = '../data/NYU_data'
 
     dataset_train = nyu.NYUDepthDataset(path_to_dataset, 'train', config, augment=False, augmentation=augmentation)
     dataset_val = nyu.NYUDepthDataset(path_to_dataset, 'test', config)
@@ -108,7 +108,7 @@ def train_depth(augmentation=None):
 
     config.DEPTH_THRESHOLD = 0
     config.PREDICT_DEPTH = True
-    config.DEPTH_LOSS = 'CHAMFER' # Options: L1, L2, BERHU
+    config.DEPTH_LOSS = 'L1' # Options: L1, L2, BERHU
     config.CHAM_LOSS = False
     config.CHAM_WEIGHT = 100
     config.GRAD_LOSS = False
@@ -117,16 +117,17 @@ def train_depth(augmentation=None):
 
     depth_model.cuda()
 
-    resnet_path = '../resnet50_imagenet.pth'
+    resnet_path = '../data/resnet50_imagenet.pth'
     #depth_model.load_weights(resnet_path)
 
-    checkpoint_dir = 'checkpoints/nyudepth20191207T1213/mask_rcnn_nyudepth_0200.pth'
-    #depth_model.load_state_dict(torch.load(checkpoint_dir))
+    #checkpoint_dir = 'checkpoints/nyudepth20191207T1213/mask_rcnn_nyudepth_0200.pth'
+    checkpoint_dir = '../data/checkpoints/scannet20200202T1605/mask_rcnn_scannet_0020.pth'
+    depth_model.load_state_dict(torch.load(checkpoint_dir))
 
     depth_model.train()
     start = timer()
 
-    epochs = 50
+    epochs = 100
     depth_model.train_model(dataset_train, dataset_val, learning_rate=config.LEARNING_RATE, epochs=epochs)
 
     #config.LEARNING_RATE /= 10
@@ -414,8 +415,8 @@ if __name__ == '__main__':
 
     #train_depth()
     #evaluate_roiregions()
-    evaluate_solodepth()
+    train_depth(augmentation)
+    #evaluate_solodepth()
     #evaluate_roiregions()
-
 
     #train_depthrcnn(augmentation=augmentation)

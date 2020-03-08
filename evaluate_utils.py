@@ -101,6 +101,27 @@ def evaluateMaskedRegions(predDepths, gtDepths, masks):
     #print(errors)
     return errors, num_pixels
 
+def evaluateMaskedROIRegions(predDepths, gtDepths):
+
+    # mask shape will be same with image shape (and depth map shape), 480x640
+    # depth shape 480, 640
+    # Roi depths are already masked
+
+    # Number of masks
+    N = predDepths.shape[2]
+    errors = []
+    num_pixels = []
+    for i in range(N):
+        err = evaluateDepthsTrue(predDepths[:,:,i], gtDepths[:,:,i])
+        errors.append(err[:-1])
+        num_pixels.append(err[-1])
+
+    # print("eval true, fin: ", N, len(errors))
+    # errors = [8 x N]
+    # num_pixels = [N]
+    #print(errors)
+    return errors, num_pixels
+
 def evaluateRoiDepths(predDepths, gtDepths):
 
     # Evaluates the 56x56 roi heads only
@@ -118,6 +139,33 @@ def evaluateRoiDepths(predDepths, gtDepths):
             num_pixels.append(pix_sum)
 
     return errors, num_pixels
+
+def calculateTrueErrors(errors, pixels):
+
+    total_pixels = np.sum(pixels)
+    rel, relsqr, log10, rmse, rmselog, a1, a2, a3 = 0, 0, 0, 0, 0, 0, 0, 0
+    for i in range(len(pixels)):
+        no_pixels = pixels[i]
+        if no_pixels == 0:
+            continue
+        rel += errors[i][0] * no_pixels / total_pixels
+        relsqr += errors[i][1] * no_pixels / total_pixels
+        log10 += errors[i][2] * no_pixels / total_pixels
+        rmse += np.power(errors[i][3], 2) * no_pixels / total_pixels
+        rmselog += np.power(errors[i][4], 2) * no_pixels / total_pixels
+        a1 += errors[i][5] * no_pixels / total_pixels
+        a2 += errors[i][6] * no_pixels / total_pixels
+        a3 += errors[i][7] * no_pixels / total_pixels
+        # print("no pixels, rel, rmse: ", no_pixels, rel, rmse)
+
+    rmse = np.sqrt(rmse)
+    rmselog = np.sqrt(rmselog)
+
+    print("Total number of pixels: ", total_pixels)
+    print(
+        "{:10.4f}, {:10.4f}, {:10.4f}, {:10.4f}, {:10.4f}, {:10.4f}, {:10.4f}, {:10.4f}".format(rel, relsqr, log10,
+                                                                                                rmse,
+                                                                                                rmselog, a1, a2, a3))
 
 ### Below not used until ...
 

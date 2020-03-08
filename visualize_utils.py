@@ -13,7 +13,7 @@ import colorsys
 from skimage.measure import find_contours
 import cv2
 
-from models.model import detection_layer, unmold_detections
+from models.model import detection_layer_#, unmold_detections
 from models.modules import *
 from utils import *
 
@@ -524,8 +524,8 @@ def apply_mask(image, mask, color, alpha=0.5):
 
 
 
-def draw_instances(config, image, depth, boxes, masks, class_ids, parameters,
-                      scores=None, title="",
+def draw_instances(config, image, boxes, masks, class_ids,
+                      scores=None, title="", depth= "",
                       figsize=(16, 16), ax=None, draw_mask=False, transform_planes=False, statistics=[], detection_flags={}):
     """
     boxes: [num_instance, (y1, x1, y2, x2, class_id)] in image coordinates.
@@ -558,8 +558,8 @@ def draw_instances(config, image, depth, boxes, masks, class_ids, parameters,
     ## Show area outside image boundaries.
     height, width = image.shape[:2]
     masked_image = image.astype(np.uint8).copy()
-    normal_image = np.zeros(image.shape)
-    depth_image = depth.copy()
+    # normal_image = np.zeros(image.shape)
+    # depth_image = depth.copy()
 
     for i in range(N):
 
@@ -594,9 +594,9 @@ def draw_instances(config, image, depth, boxes, masks, class_ids, parameters,
 
         continue
     
-    normal_image = drawNormalImage(normal_image)    
-    depth_image = drawDepthImage(depth_image)
-    return masked_image.astype(np.uint8), normal_image.astype(np.uint8), depth_image
+    # normal_image = drawNormalImage(normal_image)
+    # depth_image = drawDepthImage(depth_image)
+    return masked_image.astype(np.uint8)# , normal_image.astype(np.uint8), depth_image
 
 
 

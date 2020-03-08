@@ -56,6 +56,49 @@ centerX = 318.6
 centerY = 255.3
 scalingFactor = 5000.0
 
+
+def generate_write_pointcloud(rgb, depth, ply_file):
+    """
+    Generate a colored point cloud in PLY format from a color and a depth image.
+
+    Input:
+    rgb_file -- filename of color image
+    depth_file -- filename of depth image
+    ply_file -- filename of ply file
+
+    """
+    rgb = np.fliplr(rgb)
+    depth = np.fliplr(depth)
+
+    K = np.matrix([[fx, 0, centerX], [0, fy, centerY], [0, 0, 1]])
+    distC = np.array([0.2624, -0.9531, -0.0054, 0.0026, 1.1633])
+    #rgbU = cv2.undistort(rgb, K, distC)
+    points = []
+    for v in range(rgb.shape[1]):
+        for u in range(rgb.shape[0]):
+            #color = rgbU.getpixel((u, v))
+            color = rgb[u, v]
+            #Z = depth.getpixel((u, v)) / scalingFactor
+            Z = depth[u,v]/scalingFactor
+            X = (u - centerX) * Z / fx
+            Y = (v - centerY) * Z / fy
+            points.append("%f %f %f %d %d %d 0\n" % (X, Y, Z, color[0], color[1], color[2]))
+    file = open(ply_file, "w")
+    file.write('''ply
+    format ascii 1.0
+    element vertex %d
+    property float x
+    property float y
+    property float z
+    property uchar red
+    property uchar green
+    property uchar blue
+    property uchar alpha
+    end_header
+    %s
+    ''' % (len(points), "".join(points)))
+    file.close()
+
 def generate_pointcloud(rgb_file,depth_file,ply_file):
     """
     Generate a colored point cloud in PLY format from a color and a depth image.

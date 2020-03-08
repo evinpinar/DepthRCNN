@@ -111,7 +111,7 @@ def train_roidepth(augmentation=None, depth_weight=1):
     depth_checkpoint_dir = 'checkpoints/scannet20200202T1605/mask_rcnn_scannet_0015.pth'
     depth_checkpoint = torch.load(depth_checkpoint_dir)
 
-    state_dict = {k: v for k, v in depth_checkpoint['model_state_dict'].items() if 'depth' in k}
+    state_dict = {k: v for k, v in depth_checkpoint.items() if 'depth' in k}
 
     model_maskdepth.load_state_dict(state_dict, strict=False)
 
@@ -232,7 +232,8 @@ def train_roidepth_shift(augmentation=None, depth_weight=1):
     depth_checkpoint_dir = 'checkpoints/scannet20200202T1605/mask_rcnn_scannet_0015.pth'
     depth_checkpoint = torch.load(depth_checkpoint_dir)
 
-    state_dict = {k: v for k, v in depth_checkpoint['model_state_dict'].items() if 'depth' in k}
+    state_dict = {k: v for k, v in depth_checkpoint.items() if 'depth' in k}
+
 
     model_maskdepth.load_state_dict(state_dict, strict=False)
 
@@ -280,6 +281,251 @@ def train_roidepth_shift(augmentation=None, depth_weight=1):
 
     end = timer()
     print('Total training time: ', (end - start)/60)
+
+
+# Train for shift heads and roi depths, no attention, no shift
+def train_roidepth_base(augmentation=None, depth_weight=1):
+
+    print("ROI training!")
+
+    config = scannet.ScannetConfig()
+
+    dataset_train = scannet.ScannetDataset()
+    dataset_train.load_scannet("train")
+    dataset_train.prepare()
+
+    dataset_val = scannet.ScannetDataset()
+    dataset_val.load_scannet("val")
+    dataset_val.prepare()
+
+    print("--TRAIN--")
+    print("Image Count: {}".format(len(dataset_train.image_ids)))
+    print("Class Count: {}".format(dataset_train.num_classes))
+
+    print("--VAL--")
+    print("Image Count: {}".format(len(dataset_val.image_ids)))
+    print("Class Count: {}".format(dataset_val.num_classes))
+
+    config.STEPS_PER_EPOCH = 15000
+    config.TRAIN_ROIS_PER_IMAGE = 100
+    config.VALIDATION_STEPS = 2000
+
+    config.PREDICT_DEPTH = True
+    config.PREDICT_GLOBAL_DEPTH = True
+    config.GEOMETRIC_LOSS = False
+    config.GRAD_LOSS = False
+    depth_weight = 1
+    config.USE_MINI_MASK = True
+    config.PREDICT_PLANE = False
+    config.PREDICT_NORMAL = False
+    config.DEPTH_LOSS = 'L1'  # Options: L1, L2, BERHU
+    config.BATCH_SIZE = 1
+    config.MASK_SHAPE = [56, 56]
+    config.MASK_POOL_SIZE = 28
+
+    config.PREDICT_SHIFT = False
+    config.DEPTH_ATTENTION = False
+
+
+    model_maskdepth = MaskDepthRCNN(config)
+    model_maskdepth.cuda()
+
+    resnet_path = '../resnet50_imagenet.pth'
+    coco_path = '../mask_rcnn_coco.pth'  # This is based on resnet 101
+
+    #model_maskdepth.load_weights(resnet_path)
+    #model_maskdepth.load_weights(coco_path, iscoco=True)
+
+    # Call checkpoint below in train_model call!
+
+    #model_maskdepth.load_state_dict(torch.load(checkpoint_dir))
+
+
+    ### Load maskrcnn weights
+    checkpoint_dir = 'checkpoints/scannet20200124T1510/mask_depth_rcnn_scannet_0010.pth'
+    checkpoint = torch.load(checkpoint_dir)
+
+    state_dict = {k: v for k, v in checkpoint['model_state_dict'].items() if 'depth' not in k and 'depthmask' not in k and 'depth_ref' not in k and 'depthmask' not in k}
+
+    state = model_maskdepth.state_dict()
+    state.update(state_dict)
+    model_maskdepth.load_state_dict(state, strict=False)
+
+    ### Load global depth weights
+    depth_checkpoint_dir = 'checkpoints/scannet20200202T1605/mask_rcnn_scannet_0015.pth'
+    depth_checkpoint = torch.load(depth_checkpoint_dir)
+
+    state_dict = {k: v for k, v in depth_checkpoint.items() if 'depth' in k}
+
+    model_maskdepth.load_state_dict(state_dict, strict=False)
+
+
+    start = timer()
+
+    epochs = 10
+    layers = "depth"  # options: 3+, 4+, 5+, heads, all, depth
+    model_maskdepth.train_model(dataset_train, dataset_val, learning_rate=config.LEARNING_RATE/5, epochs=epochs,
+                                 layers=layers, depth_weight=depth_weight, augmentation=augmentation, shift_weight=0)
+
+    #model_maskdepth.train_model2(dataset_train, dataset_val, learning_rate=config.LEARNING_RATE/2, epochs=epochs,
+    #                             layers=layers, depth_weight=depth_weight, augmentation=augmentation,
+    #                             checkpoint_dir_prev=checkpoint_dir, continue_train=False)
+
+    '''
+    epochs = 40
+    layers = "all"  # options: 3+, 4+, 5+, heads, all
+    model_maskdepth.train_model2(dataset_train, dataset_val, learning_rate=config.LEARNING_RATE, epochs=epochs,
+                                 layers=layers, depth_weight=depth_weight,
+                                 augmentation=augmentation, continue_train=True)
+
+    epochs = 60
+    layers = "5+"  # options: 3+, 4+, 5+, heads, all
+    model_maskdepth.train_model2(dataset_train, dataset_val, learning_rate=config.LEARNING_RATE, epochs=epochs,
+                                 layers=layers, depth_weight=depth_weight,
+                                 augmentation=augmentation, continue_train=True)
+
+    '''
+    '''
+
+    epochs = 40
+    layers = "all"  # options: 3+, 4+, 5+, heads, all
+    model_maskdepth.train_model2(dataset_train, dataset_val, learning_rate=config.LEARNING_RATE, epochs=epochs,
+                                 layers=layers, depth_weight=depth_weight, augmentation=augmentation)
+
+
+    epochs = 60
+    config.LEARNING_RATE /= 10
+    layers = "5+"  # options: 3+, 4+, 5+, heads, all
+    model_maskdepth.train_model2(dataset_train, dataset_val, learning_rate=config.LEARNING_RATE, epochs=epochs,
+                                 layers=layers, depth_weight=depth_weight, augmentation=augmentation)
+
+    '''
+
+    end = timer()
+    print('Total training time: ', (end - start)/60)
+
+
+# Train with scale head
+def train_roidepth_scale(augmentation=None):
+    print("ROI training!")
+
+    config = scannet.ScannetConfig()
+    scannet_data = '../data/SCANNET/'
+
+    dataset_train = scannet.ScannetDataset()
+    dataset_train.load_scannet("train", scannet_data)
+    dataset_train.prepare()
+
+    dataset_val = scannet.ScannetDataset()
+    dataset_val.load_scannet("val", scannet_data)
+    dataset_val.prepare()
+
+    print("--TRAIN--")
+    print("Image Count: {}".format(len(dataset_train.image_ids)))
+    print("Class Count: {}".format(dataset_train.num_classes))
+
+    print("--VAL--")
+    print("Image Count: {}".format(len(dataset_val.image_ids)))
+    print("Class Count: {}".format(dataset_val.num_classes))
+
+    config.STEPS_PER_EPOCH = 15000
+    config.TRAIN_ROIS_PER_IMAGE = 100
+    config.VALIDATION_STEPS = 2000
+
+    config.PREDICT_DEPTH = True
+    config.PREDICT_GLOBAL_DEPTH = True
+    config.GEOMETRIC_LOSS = False
+    config.GRAD_LOSS = False
+    depth_weight = 1
+    config.USE_MINI_MASK = True
+    config.PREDICT_PLANE = False
+    config.PREDICT_NORMAL = False
+    config.DEPTH_LOSS = 'L1'  # Options: L1, L2, BERHU
+    config.BATCH_SIZE = 1
+    config.MASK_SHAPE = [56, 56]
+    config.MASK_POOL_SIZE = 28
+
+    config.DEPTH_ATTENTION = False
+    config.PREDICT_SHIFT = False
+    config.ATTENTION_GT_MASK = False
+    config.DEPTH_SCALE = True
+
+    model_maskdepth = MaskDepthRCNN(config, model_dir='../data/checkpoints')
+    model_maskdepth.cuda()
+
+    resnet_path = '../resnet50_imagenet.pth'
+    coco_path = '../mask_rcnn_coco.pth'  # This is based on resnet 101
+
+    # model_maskdepth.load_weights(resnet_path)
+    # model_maskdepth.load_weights(coco_path, iscoco=True)
+
+    # Call checkpoint below in train_model call!
+
+    # model_maskdepth.load_state_dict(torch.load(checkpoint_dir))
+
+    ### Load maskrcnn weights
+    checkpoint_dir = '../data/checkpoints/scannet20200124T1510/mask_depth_rcnn_scannet_0010.pth'
+    checkpoint = torch.load(checkpoint_dir)
+
+    state_dict = {k: v for k, v in checkpoint['model_state_dict'].items() if
+                  'depth' not in k and 'depthmask' not in k and 'depth_ref' not in k and 'depthmask' not in k}
+
+    state = model_maskdepth.state_dict()
+    state.update(state_dict)
+    model_maskdepth.load_state_dict(state, strict=False)
+
+    ### Load global depth weights
+    depth_checkpoint_dir = '../data/checkpoints/scannet20200202T1605/mask_rcnn_scannet_0015.pth'
+    depth_checkpoint = torch.load(depth_checkpoint_dir)
+
+    state_dict = {k: v for k, v in depth_checkpoint.items() if 'depth' in k}
+
+    model_maskdepth.load_state_dict(state_dict, strict=False)
+
+    start = timer()
+
+    epochs = 10
+    layers = "depth"  # options: 3+, 4+, 5+, heads, all, depth
+    model_maskdepth.train_model(dataset_train, dataset_val, learning_rate=config.LEARNING_RATE / 5, epochs=epochs,
+                                layers=layers, depth_weight=depth_weight, augmentation=augmentation, shift_weight=0)
+
+    # model_maskdepth.train_model2(dataset_train, dataset_val, learning_rate=config.LEARNING_RATE/2, epochs=epochs,
+    #                             layers=layers, depth_weight=depth_weight, augmentation=augmentation,
+    #                             checkpoint_dir_prev=checkpoint_dir, continue_train=False)
+
+    '''
+    epochs = 40
+    layers = "all"  # options: 3+, 4+, 5+, heads, all
+    model_maskdepth.train_model2(dataset_train, dataset_val, learning_rate=config.LEARNING_RATE, epochs=epochs,
+                                 layers=layers, depth_weight=depth_weight,
+                                 augmentation=augmentation, continue_train=True)
+
+    epochs = 60
+    layers = "5+"  # options: 3+, 4+, 5+, heads, all
+    model_maskdepth.train_model2(dataset_train, dataset_val, learning_rate=config.LEARNING_RATE, epochs=epochs,
+                                 layers=layers, depth_weight=depth_weight,
+                                 augmentation=augmentation, continue_train=True)
+
+    '''
+    '''
+
+    epochs = 40
+    layers = "all"  # options: 3+, 4+, 5+, heads, all
+    model_maskdepth.train_model2(dataset_train, dataset_val, learning_rate=config.LEARNING_RATE, epochs=epochs,
+                                 layers=layers, depth_weight=depth_weight, augmentation=augmentation)
+
+
+    epochs = 60
+    config.LEARNING_RATE /= 10
+    layers = "5+"  # options: 3+, 4+, 5+, heads, all
+    model_maskdepth.train_model2(dataset_train, dataset_val, learning_rate=config.LEARNING_RATE, epochs=epochs,
+                                 layers=layers, depth_weight=depth_weight, augmentation=augmentation)
+
+    '''
+
+    end = timer()
+    print('Total training time: ', (end - start) / 60)
+
 
 def train_solodepth(augmentation=None):
 
@@ -330,6 +576,496 @@ def train_solodepth(augmentation=None):
 
     end = timer()
     print('Total training time: ', end - start)
+
+
+def train_maskrcnn(augmentation=None):
+    print("ROI training!")
+
+    config = scannet.ScannetConfig()
+    scannet_data = '../data/SCANNET/'
+
+    dataset_train = scannet.ScannetDataset()
+    dataset_train.load_scannet("train", scannet_data)
+    dataset_train.prepare()
+
+    dataset_val = scannet.ScannetDataset()
+    dataset_val.load_scannet("val", scannet_data)
+    dataset_val.prepare()
+
+    print("--TRAIN--")
+    print("Image Count: {}".format(len(dataset_train.image_ids)))
+    print("Class Count: {}".format(dataset_train.num_classes))
+
+    print("--VAL--")
+    print("Image Count: {}".format(len(dataset_val.image_ids)))
+    print("Class Count: {}".format(dataset_val.num_classes))
+
+    config.STEPS_PER_EPOCH = 15000
+    config.TRAIN_ROIS_PER_IMAGE = 100
+    config.VALIDATION_STEPS = 2000
+
+    config.PREDICT_DEPTH = True
+    config.PREDICT_GLOBAL_DEPTH = True
+    config.GEOMETRIC_LOSS = False
+    config.GRAD_LOSS = False
+    depth_weight = 1
+    config.USE_MINI_MASK = True
+    config.PREDICT_PLANE = False
+    config.PREDICT_NORMAL = False
+    config.DEPTH_LOSS = 'L1'  # Options: L1, L2, BERHU
+    config.BATCH_SIZE = 1
+    config.MASK_SHAPE = [56, 56]
+    config.MASK_POOL_SIZE = 28
+
+    config.DEPTH_ATTENTION = False
+    config.PREDICT_SHIFT = False
+    config.ATTENTION_GT_MASK = False
+    config.DEPTH_SCALE = False
+
+    model_maskdepth = MaskDepthRCNN(config, model_dir='../data/checkpoints')
+    model_maskdepth.cuda()
+
+    resnet_path = '../resnet50_imagenet.pth'
+    coco_path = '../mask_rcnn_coco.pth'  # This is based on resnet 101
+
+    # model_maskdepth.load_weights(resnet_path)
+    # model_maskdepth.load_weights(coco_path, iscoco=True)
+
+    # Call checkpoint below in train_model call!
+
+    # model_maskdepth.load_state_dict(torch.load(checkpoint_dir))
+
+    ### Load maskrcnn weights
+    checkpoint_dir = '../data/checkpoints/scannet20200124T1510/mask_depth_rcnn_scannet_0010.pth'
+    checkpoint = torch.load(checkpoint_dir)
+
+    state_dict = {k: v for k, v in checkpoint['model_state_dict'].items() if
+                  'depth' not in k and 'depthmask' not in k and 'depth_ref' not in k and 'depthmask' not in k}
+
+    state = model_maskdepth.state_dict()
+    state.update(state_dict)
+    model_maskdepth.load_state_dict(state, strict=False)
+
+    depth_checkpoint_dir = '../data/checkpoints/scannet20200202T1605/mask_rcnn_scannet_0015.pth'
+    depth_checkpoint = torch.load(depth_checkpoint_dir)
+
+    state_dict = {k: v for k, v in depth_checkpoint.items() if 'depth' in k}
+
+    model_maskdepth.load_state_dict(state_dict, strict=False)
+
+    start = timer()
+
+    epochs = 10
+    layers = "depthmaskrcnn"  # options: 3+, 4+, 5+, heads, all, depth
+    model_maskdepth.train_model(dataset_train, dataset_val, learning_rate=config.LEARNING_RATE/2, epochs=epochs,
+                                layers=layers, depth_weight=depth_weight, augmentation=augmentation)
+
+    # model_maskdepth.train_model2(dataset_train, dataset_val, learning_rate=config.LEARNING_RATE/2, epochs=epochs,
+    #                             layers=layers, depth_weight=depth_weight, augmentation=augmentation,
+    #                             checkpoint_dir_prev=checkpoint_dir, continue_train=False)
+
+    '''
+    epochs = 40
+    layers = "all"  # options: 3+, 4+, 5+, heads, all
+    model_maskdepth.train_model2(dataset_train, dataset_val, learning_rate=config.LEARNING_RATE, epochs=epochs,
+                                 layers=layers, depth_weight=depth_weight,
+                                 augmentation=augmentation, continue_train=True)
+
+    '''
+
+    end = timer()
+    print('Total training time: ', (end - start) / 60)
+
+
+def evaluate_initial_backbone():
+    print("Test the depthrcnn backbone depth to see if depth backbone is effected !")
+
+    config = scannet.ScannetConfig()
+
+    dataset_test = scannet.ScannetDataset()
+    dataset_test.load_scannet("val")  # change the number of steps as well
+    dataset_test.prepare()
+
+    print("--TEST--")
+    print("Image Count: {}".format(len(dataset_test.image_ids)))
+    print("Class Count: {}".format(dataset_test.num_classes))
+
+    config.STEPS_PER_EPOCH = 15000
+    config.TRAIN_ROIS_PER_IMAGE = 100
+    config.VALIDATION_STEPS = 2000
+
+    config.PREDICT_DEPTH = True
+    config.PREDICT_GLOBAL_DEPTH = True
+    config.GEOMETRIC_LOSS = False
+    config.GRAD_LOSS = False
+    depth_weight = 1
+    config.USE_MINI_MASK = True
+    config.PREDICT_PLANE = False
+    config.PREDICT_NORMAL = False
+    config.DEPTH_LOSS = 'L1'  # Options: L1, L2, BERHU
+    config.BATCH_SIZE = 1
+    config.MASK_SHAPE = [56, 56]
+    config.MASK_POOL_SIZE = 28
+
+    config.DEPTH_ATTENTION = False
+    config.PREDICT_SHIFT = False
+    config.ATTENTION_GT_MASK = False
+
+    model_maskdepth = MaskDepthRCNN(config)
+    model_maskdepth.cuda()
+
+    resnet_path = '../resnet50_imagenet.pth'
+    coco_path = '../mask_rcnn_coco.pth'  # This is based on resnet 101
+
+    # model_maskdepth.load_weights(resnet_path)
+    # model_maskdepth.load_weights(coco_path, iscoco=True)
+
+    # Call checkpoint below in train_model call!
+
+    # model_maskdepth.load_state_dict(torch.load(checkpoint_dir))
+
+    ### Load maskrcnn weights
+    checkpoint_dir = 'checkpoints/scannet20200124T1510/mask_depth_rcnn_scannet_0010.pth'
+    checkpoint = torch.load(checkpoint_dir)
+
+    state_dict = {k: v for k, v in checkpoint['model_state_dict'].items() if
+                  'depth' not in k and 'depthmask' not in k and 'depth_ref' not in k and 'depthmask' not in k}
+
+    state = model_maskdepth.state_dict()
+    state.update(state_dict)
+    model_maskdepth.load_state_dict(state, strict=False)
+
+    ### Load global depth weights
+    depth_checkpoint_dir = 'checkpoints/scannet20200202T1605/mask_rcnn_scannet_0015.pth'
+    depth_checkpoint = torch.load(depth_checkpoint_dir)
+
+    state_dict = {k: v for k, v in depth_checkpoint.items() if 'depth' in k}
+
+    model_maskdepth.load_state_dict(state_dict, strict=False)
+
+    # test_datagenerator = modellib.data_generator(dataset_test, config, shuffle=False, augment=False, batch_size=1)
+    test_generator = data_generator2(dataset_test, config, shuffle=False, augment=False, batch_size=1,
+                                     augmentation=None)
+
+    step = 0
+    steps = 5436
+    # train = 16830, val = 2635, test = 5436
+    errors = []
+    masked_errs = []
+    gt_masked_errs = []
+    num_pixels = []
+    masked_pixels = []
+    gt_masked_pixels = []
+
+    with torch.no_grad():
+        while step < steps:
+            inputs = next(test_generator)
+            images = inputs[0]
+            image_metas = inputs[1]
+            rpn_match = inputs[2]
+            rpn_bbox = inputs[3]
+            gt_class_ids = inputs[4]
+            gt_boxes = inputs[5]
+            gt_masks = inputs[6]
+            gt_depths = inputs[7]
+            gt_normals = inputs[8]
+            gt_depth = inputs[9]
+
+            # Wrap in variables
+            images = Variable(images)
+            rpn_match = Variable(rpn_match)
+            rpn_bbox = Variable(rpn_bbox)
+            gt_class_ids = Variable(gt_class_ids)
+            gt_boxes = Variable(gt_boxes)
+            gt_masks = Variable(gt_masks)
+            gt_depths = Variable(gt_depths)
+            gt_normals = Variable(gt_normals)
+            gt_depth = Variable(gt_depth)
+
+            # To GPU
+            if config.GPU_COUNT:
+                images = images.cuda()
+                rpn_match = rpn_match.cuda()
+                rpn_bbox = rpn_bbox.cuda()
+                gt_class_ids = gt_class_ids.cuda()
+                gt_boxes = gt_boxes.cuda()
+                gt_masks = gt_masks.cuda()
+                gt_depths = gt_depths.cuda()
+                gt_normals = gt_normals.cuda()
+                gt_depth = gt_depth.cuda()
+
+            detections, mrcnn_mask, mrcnn_depth, mrcnn_normals, global_depth, mrcnn_shifts = \
+                model_maskdepth.predict([images, image_metas, gt_class_ids, gt_boxes, gt_masks, gt_depths, gt_normals],
+                                         mode='inference')
+
+            depth_pred = global_depth.detach().cpu().numpy()[0, 80:560, :]
+            depth_gt = gt_depth.cpu().numpy()[0, 80:560, :]
+
+            # Evaluate Global Depth
+            err = evaluateDepthsTrue(depth_pred, depth_gt, printInfo=False)
+            errors.append(err[:-1])
+            num_pixels.append(err[-1])
+
+            # Evaluate GT Masked Regions on Global Depth, ground truth masks
+            # Select the nonzero gt masks, depths, rois
+            gt_boxes = gt_boxes.data.cpu().numpy()
+            gt_class_ids = gt_class_ids.data.cpu().numpy()
+            gt_masks = gt_masks.data.cpu().numpy()
+            gt_boxes = trim_zeros(gt_boxes[0])
+            gt_masks = gt_masks[0, :gt_boxes.shape[0], :, :]
+            # Expand the masks from 56x56 to 640x640
+            expanded_mask = utils.expand_mask(gt_boxes, gt_masks.transpose(1, 2, 0), (640, 640, 3))
+
+            gt_masked_err, gt_masked_pix = evaluateMaskedRegions(depth_pred, depth_gt, expanded_mask)
+            gt_masked_errs += gt_masked_err
+            gt_masked_pixels += gt_masked_pix
+
+
+            step += 1
+            if step % 100 == 0:
+                print(" HERE: ", step)
+
+            # Break after 'steps' steps
+            if step == steps - 1:
+                break
+
+    print("{:>10}, {:>10}, {:>10}, {:>10}, {:>10}, {:>10}, {:>10}, {:>10}".format('rel', 'rel_sqr', 'log_10', 'rmse',
+                                                                                  'rmse_log', 'a1', 'a2', 'a3'))
+    print("\nTraining code : ")
+    print("====== 1. Global depth error: ")
+    calculateTrueErrors(errors, num_pixels)
+
+    print("====== 2. GT Masked error: ")
+    calculateTrueErrors(gt_masked_errs, gt_masked_pixels)
+
+
+# depth rcnn with no shift/scale/attn
+def evaluate_naive_model():
+
+    print("Evaluate naive depth rcnn!")
+
+    config = scannet.ScannetConfig()
+
+    dataset_test = scannet.ScannetDataset()
+    dataset_test.load_scannet("test", scannet_data="../data/SCANNET/")
+    dataset_test.prepare()
+
+    print("--TEST--")
+    print("Image Count: {}".format(len(dataset_test.image_ids)))
+    print("Class Count: {}".format(dataset_test.num_classes))
+
+    test_generator = data_generator2(dataset_test, config, shuffle=False, augment=False, batch_size=1,
+                                     augmentation=None)
+
+    config.STEPS_PER_EPOCH = 15000
+    config.TRAIN_ROIS_PER_IMAGE = 100
+    config.VALIDATION_STEPS = 2000
+
+    config.PREDICT_DEPTH = True
+    config.PREDICT_GLOBAL_DEPTH = True
+    config.GEOMETRIC_LOSS = False
+    config.GRAD_LOSS = False
+    depth_weight = 1
+    config.USE_MINI_MASK = True
+    config.PREDICT_PLANE = False
+    config.PREDICT_NORMAL = False
+    config.DEPTH_LOSS = 'L1'  # Options: L1, L2, BERHU
+    config.BATCH_SIZE = 1
+    config.MASK_SHAPE = [56, 56]
+    config.MASK_POOL_SIZE = 28
+
+    config.DEPTH_ATTENTION = False
+    config.PREDICT_SHIFT = False
+    config.ATTENTION_GT_MASK = False
+    config.DEPTH_SCALE = False
+
+    model_maskdepth = MaskDepthRCNN(config)
+    model_maskdepth.cuda()
+
+    checkpoint_dir = '../data/checkpoints/scannet20200227T1132/mask_depth_rcnn_scannet_0010.pth'
+    model_maskdepth.load_state_dict(torch.load(checkpoint_dir, map_location='cuda:0')['model_state_dict'])
+
+    checkpoint_dir = 'checkpoints/scannet20200207T1619/mask_depth_rcnn_scannet_0010.pth'
+    model_maskdepth.load_state_dict(torch.load(checkpoint_dir)['model_state_dict'])
+
+    # test_datagenerator = modellib.data_generator(dataset_test, config, shuffle=False, augment=False, batch_size=1)
+    step = 0
+    steps = 5435
+
+    errors = {i: [] for i in range(1, 8)}
+    pixels = {i: [] for i in range(1, 8)}
+
+    with torch.no_grad():
+        while step < steps:
+            inputs = next(test_generator)
+            images = inputs[0]
+            image_metas = inputs[1]
+            rpn_match = inputs[2]
+            rpn_bbox = inputs[3]
+            gt_class_ids = inputs[4]
+            gt_boxes = inputs[5]
+            gt_masks = inputs[6]
+            gt_depths = inputs[7]
+            gt_normals = inputs[8]
+            gt_depth = inputs[9]
+
+            # Wrap in variables
+            images = Variable(images)
+            rpn_match = Variable(rpn_match)
+            rpn_bbox = Variable(rpn_bbox)
+            gt_class_ids = Variable(gt_class_ids)
+            gt_boxes = Variable(gt_boxes)
+            gt_masks = Variable(gt_masks)
+            gt_depths = Variable(gt_depths)
+            gt_normals = Variable(gt_normals)
+            gt_depth = Variable(gt_depth)
+
+            # To GPU
+            if config.GPU_COUNT:
+                images = images.cuda()
+                rpn_match = rpn_match.cuda()
+                rpn_bbox = rpn_bbox.cuda()
+                gt_class_ids = gt_class_ids.cuda()
+                gt_boxes = gt_boxes.cuda()
+                gt_masks = gt_masks.cuda()
+                gt_depths = gt_depths.cuda()
+                gt_normals = gt_normals.cuda()
+                gt_depth = gt_depth.cuda()
+
+
+                rpn_class_logits, rpn_pred_bbox, target_class_ids, mrcnn_class_logits, target_deltas, mrcnn_bbox, target_mask, mrcnn_mask, rois, target_depths, mrcnn_depths, target_normal, mrcnn_normal, global_depth, n_dets_per_sample, target_shift, mrcnn_shift = \
+                    model_maskdepth.predict(
+                        [images, image_metas, gt_class_ids, gt_boxes, gt_masks, gt_depths, gt_normals],
+                        mode='training')
+
+                ### Evaluate Local Depths
+                # select nonzero values, class ids
+                positive_ix = torch.nonzero(target_class_ids[0] > 0)[:, 0]
+                positive_class_ids = target_class_ids[0, positive_ix.data].long()
+                indices = torch.stack((positive_ix, positive_class_ids), dim=1)
+
+                ## Gather the depths (predicted and true) that contribute to loss
+                target_depths = target_depths.cpu().numpy()
+                mrcnn_depths = mrcnn_depths.cpu().numpy()
+
+                true_depth = target_depths[0, indices[:, 0].data, :, :]
+                pred_depth = mrcnn_depths[0, indices[:, 0].data, indices[:, 1].data, :, :]
+
+                ### Evaluate roi depths
+                roi_err, roi_pix = evaluateRoiDepths(pred_depth, true_depth)
+                errors[1] += roi_err
+                pixels[1] += roi_pix
+
+                imgs = images.permute(0, 2, 3, 1)
+
+                results = model_maskdepth.detect(imgs, mold_image=False, image_metas=image_metas)
+                r = results[0]
+
+                pred_boxes = r['rois']
+                pred_masks = r['masks']
+                pred_scores = r['scores']
+                pred_depths = r['depths']
+                pred_glob_depth = r['glob_depth']
+                pred_class_ids = r['class_ids']
+                gt_depth_whole = gt_depth[0].cpu().numpy()
+
+                exclude_ix = []
+                for i in range(pred_boxes.shape[0]):
+                    if pred_masks[:, :, i].sum() == 0:
+                        exclude_ix.append(i)
+
+                if len(exclude_ix) > 0:
+                    pred_class_ids = np.delete(pred_class_ids, exclude_ix, axis=0)
+                    pred_masks = np.delete(pred_masks, exclude_ix, axis=2)
+                    pred_depths = np.delete(pred_depths, exclude_ix, axis=2)
+
+
+                n_rois = pred_class_ids.shape[0]
+
+                full_roi_depths = pred_glob_depth.copy()
+                # replace them on global -> highest scores remain
+                for j in range(n_rois):
+                    i = n_rois - j - 1
+                    depth = pred_depths[:, :, i] * pred_masks[:, :, i]
+                    idx = depth.nonzero()
+                    # print(idx.shape)
+                    if len(idx) != 0:
+                        full_roi_depths[idx] = depth[idx]
+
+                err_global = evaluateDepthsTrue(pred_glob_depth[80:560], gt_depth_whole[80:560], printInfo=False)
+                errors[2].append(err_global[:-1])
+                pixels[2].append(err_global[-1])
+
+                err_reshifted = evaluateDepthsTrue(full_roi_depths[80:560], gt_depth_whole[80:560], printInfo=False)
+                errors[3].append(err_reshifted[:-1])
+                pixels[3].append(err_reshifted[-1])
+
+
+                # Evaluate masked regions [pred masks]
+                masked_err, masked_pix = evaluateMaskedRegions(pred_glob_depth[80:560], gt_depth_whole[80:560],
+                                                               pred_masks)
+                errors[4] += masked_err
+                pixels[4] += masked_pix
+
+                masked_err, masked_pix = evaluateMaskedRegions(full_roi_depths[80:560], gt_depth_whole[80:560],
+                                                               pred_masks)
+                errors[5] += masked_err
+                pixels[5] += masked_pix
+
+                # Evaluate masked regions [gt masks]
+
+                gt_boxes = gt_boxes.data.cpu().numpy()
+                gt_class_ids = gt_class_ids.data.cpu().numpy()
+                gt_masks = gt_masks.data.cpu().numpy()
+                gt_boxes = trim_zeros(gt_boxes[0])
+                gt_masks = gt_masks[0, :gt_boxes.shape[0], :, :]
+                # Expand the masks from 56x56 to 640x640
+                expanded_mask = utils.expand_mask(gt_boxes, gt_masks.transpose(1, 2, 0), (640, 640, 3))
+
+                masked_err, masked_pix = evaluateMaskedRegions(pred_glob_depth[80:560], gt_depth_whole[80:560],
+                                                               expanded_mask)
+                errors[6] += masked_err
+                pixels[6] += masked_pix
+
+                masked_err, masked_pix = evaluateMaskedRegions(full_roi_depths[80:560], gt_depth_whole[80:560],
+                                                               expanded_mask)
+                errors[7] += masked_err
+                pixels[7] += masked_pix
+
+
+
+                step += 1
+                if step % 100 == 0:
+                    print(" HERE: ", step)
+
+                # Break after 'steps' steps
+                if step == steps - 1:
+                    break
+
+
+    print("{:>10}, {:>10}, {:>10}, {:>10}, {:>10}, {:>10}, {:>10}, {:>10}".format('rel', 'rel_sqr', 'log_10', 'rmse',
+                                                                                  'rmse_log', 'a1', 'a2', 'a3'))
+    print("====== 1. ROI accuracy: ")
+    calculateTrueErrors(errors[1], pixels[1])
+
+    print("====== 2. Global pred whole accuracy: ")
+    calculateTrueErrors(errors[2], pixels[2])
+
+    print("====== 3. Global + ROI whole accuracy: ")
+    calculateTrueErrors(errors[3], pixels[3])
+
+    print("====== 4. Global pred GT-masked accuracy: ")
+    calculateTrueErrors(errors[4], pixels[4])
+
+    print("====== 5. Global+ROI GT-masked accuracy: ")
+    calculateTrueErrors(errors[5], pixels[5])
+
+    print("====== 6. Global pred pred-masked accuracy: ")
+    calculateTrueErrors(errors[6], pixels[6])
+
+    print("====== 7. Global+ROI pred-masked accuracy: ")
+    calculateTrueErrors(errors[7], pixels[7])
+
 
 def evaluate_roidepth():
 
@@ -433,6 +1169,7 @@ def evaluate_roidepth():
         "{:10.4f}, {:10.4f}, {:10.4f}, {:10.4f}, {:10.4f}, {:10.4f}, {:10.4f}, {:10.4f}".format(e[0], e[1], e[2], e[3],
                                                                                                 e[4], e[5], e[6], e[7]))
 
+
 # Evaluates the masked depth predictions
 def evaluate_roiregions():
     print("Model evaluation!")
@@ -483,6 +1220,11 @@ def evaluate_roiregions():
     steps = 5435
 
     loss_roi = []
+    errors = []
+    gt_masked_errs = []
+    num_pixels = []
+    gt_masked_pixels = []
+
     with torch.no_grad():
         while step < steps:
             inputs = next(test_generator)
@@ -530,17 +1272,27 @@ def evaluate_roiregions():
 
             depth_np = depth_model.predict([images, gt_depths], mode='inference')
 
-            pred_depth = depth_np[0][0]
-            rois = gt_boxes[0]
-            masks = gt_masks[0]
-            gt_dep = gt_depth[0]
+            depth_pred = depth_np[0][0, 80:560, :].detach().cpu().numpy()
+            depth_gt = gt_depths[0, 80:560, :].cpu().numpy()
+
+            err = evaluateDepthsTrue(depth_pred[80:560], depth_gt[80:560], printInfo=False)
+            errors.append(err[:-1])
+            num_pixels.append(err[-1])
+
+            gt_boxes = gt_boxes.data.cpu().numpy()
+            gt_class_ids = gt_class_ids.data.cpu().numpy()
+            gt_masks = gt_masks.data.cpu().numpy()
+            gt_boxes = trim_zeros(gt_boxes[0])
+            gt_masks = gt_masks[0, :gt_boxes.shape[0], :, :]
+            # Expand the masks from 56x56 to 640x640
+            expanded_mask = utils.expand_mask(gt_boxes, gt_masks.transpose(1, 2, 0), (640, 640, 3))
+
+            gt_masked_err, gt_masked_pix = evaluateMaskedRegions(depth_pred, depth_gt, expanded_mask)
+            gt_masked_errs += gt_masked_err
+            gt_masked_pixels += gt_masked_pix
 
 
-            roi_err = eval_roi_accuracy(gt_dep, pred_depth, rois, masks)
-            #print(roi_err)
-            loss_roi.append(np.mean(roi_err))
             step += 1
-
             if step % 100 == 0:
                 print(" HERE: ", step)
 
@@ -548,7 +1300,15 @@ def evaluate_roiregions():
             if step == steps - 1:
                 break
 
-    print("Masked regions depth mean: ", np.mean(loss_roi))
+    print("{:>10}, {:>10}, {:>10}, {:>10}, {:>10}, {:>10}, {:>10}, {:>10}".format('rel', 'rel_sqr', 'log_10', 'rmse',
+                                                                                  'rmse_log', 'a1', 'a2', 'a3'))
+    print("\nTraining code : ")
+    print("====== 1. Global depth error: ")
+    calculateTrueErrors(errors, num_pixels)
+
+    print("====== 2. GT Masked error: ")
+    calculateTrueErrors(gt_masked_errs, gt_masked_pixels)
+
 
 def evaluate_true_roiregions():
     print("Model evaluation!")
@@ -848,6 +1608,7 @@ def evaluate_true_roiregions():
                                                                                                 rmse,
                                                                                                 rmselog, a1, a2, a3))
 
+
 def evaluate_solodepth():
 
     print("Model evaluation on scannet test!")
@@ -921,6 +1682,7 @@ def evaluate_solodepth():
     print(
         "{:10.4f}, {:10.4f}, {:10.4f}, {:10.4f}, {:10.4f}, {:10.4f}, {:10.4f}, {:10.4f}".format(e[0], e[1], e[2], e[3],
                                                                                                 e[4], e[5], e[6], e[7]))
+
 
 def evaluate_true_attention():
     print("Model evaluation for training set!")
@@ -1310,14 +2072,13 @@ def evaluate_true_shift():
     config.MASK_SHAPE = [56, 56]
     config.MASK_POOL_SIZE = 28
 
-    config.DEPTH_ATTENTION = True
-    config.PREDICT_SHIFT = False
-    config.ATTENTION_GT_MASK = True
+    config.PREDICT_SHIFT = True
+    config.DEPTH_ATTENTION = False
 
     model_maskdepth = MaskDepthRCNN(config)
     model_maskdepth.cuda()
 
-    checkpoint_dir = 'checkpoints/scannet20200208T2307/mask_depth_rcnn_scannet_0010.pth'
+    checkpoint_dir = 'checkpoints/scannet20200207T1619/mask_depth_rcnn_scannet_0010.pth'
     model_maskdepth.load_state_dict(torch.load(checkpoint_dir)['model_state_dict'])
 
     # test_datagenerator = modellib.data_generator(dataset_test, config, shuffle=False, augment=False, batch_size=1)
@@ -1327,16 +2088,9 @@ def evaluate_true_shift():
     step = 0
     steps = 5436
     # train = 16830, val = 2635, test = 5436
-    errors = []
-    masked_errs = []
-    gt_masked_errs = []
-    roi_errs = []
-    shift_errs = []
-    num_pixels = []
-    masked_pixels = []
-    gt_masked_pixels = []
-    roi_pixels = []
-    shift_pixels = []
+
+    errors = {i:[] for i in range(1,15)}
+    pixels = {i:[] for i in range(1,15)}
 
     with torch.no_grad():
         while step < steps:
@@ -1379,14 +2133,6 @@ def evaluate_true_shift():
                 model_maskdepth.predict([images, image_metas, gt_class_ids, gt_boxes, gt_masks, gt_depths, gt_normals],
                                         mode='training')
 
-            depth_pred = global_depth.detach().cpu().numpy()[0, 80:560, :]
-            depth_gt = gt_depth.cpu().numpy()[0, 80:560, :]
-
-            ### Evaluate Global Depth
-            err = evaluateDepthsTrue(depth_pred, depth_gt, printInfo=False)
-            errors.append(err[:-1])
-            num_pixels.append(err[-1])
-
             ### Evaluate Local Depths
             # select nonzero values, class ids
             positive_ix = torch.nonzero(target_class_ids[0] > 0)[:, 0]
@@ -1405,54 +2151,142 @@ def evaluate_true_shift():
             pred_shift = mrcnn_shift[0, indices[:, 0].data]
 
             ### Evaluate roi depths
-            roi_err = evaluateRoiDepths(pred_depth, true_depth)
-            roi_errs.append(roi_err[:-1])
-            roi_pixels.append(roi_err[-1])
+            roi_err, roi_pix = evaluateRoiDepths(pred_depth, true_depth)
+            errors[1] += roi_err
+            pixels[1] += roi_pix
 
             ### Evaluate shifts ( amount of shift, absrel, rmse )
             shift_err = evaluateDepthsTrue(pred_shift, true_shift)
             rel, relsqr, rmse, rmse_log = shift_err[0], shift_err[1], shift_err[2], shift_err[4]
-            shift_errs.append([rel, relsqr, rmse, rmse_log])
-            shift_pixels.append(shift_err[-1]) # number of shifts(ROIs) for one instance
+            #errors[2].append([rel, relsqr, rmse, rmse_log])
+            errors[2].append(shift_err[:-1])
+            pixels[2].append(shift_err[-1]) # number of shifts(ROIs) for one instance
 
 
             ### Evaluate local+global by predicted SHIFT, pred boxes
             # We need the unnormalized box coordinates for that, which comes from inference code.
 
-            detections, mrcnn_mask, mrcnn_depth, mrcnn_normal, global_depth, mrcnn_shift = model_maskdepth.predict([images, image_metas, gt_class_ids, gt_boxes, gt_masks, gt_depths, gt_normals],
-                                        mode='inference')
+            imgs = images.permute(0, 2, 3, 1)
 
-            # Replace the locals depths on global by [predicted masks] ?
+            results = model_maskdepth.detect(imgs, mold_image=False, image_metas=image_metas)
+            r = results[0]
 
-            # Evaluate whole depth
+            pred_boxes = r['rois']
+            pred_masks = r['masks']
+            pred_scores = r['scores']
+            pred_depths = r['depths']
+            pred_glob_depth = r['glob_depth']
+            pred_class_ids = r['class_ids']
+            pred_shifts = r['shifts']
 
-            # Get masks
+            exclude_ix = []
+            for i in range(pred_boxes.shape[0]):
+                if pred_masks[:, :, i].sum() == 0:
+                    exclude_ix.append(i)
 
-            # Evaluate masked regions [pred and gt masks]
+            if len(exclude_ix) > 0:
+                pred_boxes = np.delete(pred_boxes, exclude_ix, axis=0)
+                pred_class_ids = np.delete(pred_class_ids, exclude_ix, axis=0)
+                pred_shifts = np.delete(pred_shifts, exclude_ix, axis=0)
+                pred_scores = np.delete(pred_scores, exclude_ix, axis=0)
+                pred_masks = np.delete(pred_masks, exclude_ix, axis=2)
+                pred_depths = np.delete(pred_depths, exclude_ix, axis=2)
 
-            ### Evaluate local+global by GT SHIFT, pred boxes
-            # a. Whole depth
-            # b. Masked regions
+            n_rois = pred_class_ids.shape[0]
+
+            ### Evaluate roi depths
+
+            # Extract the same regions on gt_depth and pred global depth, mask them, calculate shift and apply shift.
+            # Pred shift and pred mask used
+
+            gt_depth_rois = np.zeros([640, 640, n_rois])
+            gt_shifts = np.zeros([n_rois])
+            global_depth_rois = np.zeros([640, 640, n_rois])
+
+            gt_depth_whole = gt_depth[0].cpu().numpy()
+
+            thresh = 0.2
+            for i in range(n_rois):
+                mask = pred_masks[:, :, i]
+                depth_area = gt_depth_whole.copy() * mask
+                if depth_area.sum() == 0:
+                    gt_shifts[i] = 0
+                    gt_depth_rois[:, :, i] = depth_area
+                    break
+                min_val = depth_area[depth_area > thresh].min()
+                gt_shifts[i] = min_val
+                depth_area -= pred_shifts[i] #min_val
+                gt_depth_rois[:, :, i] = depth_area * mask
+
+            # Find global depth local areas, shifted, masked
+            for i in range(n_rois):
+                mask = pred_masks[:, :, i]
+                depth_area = pred_glob_depth.copy() * mask
+                depth_area -= pred_shifts[i]  # gt_shifts[i]
+                global_depth_rois[:, :, i] = depth_area * mask
+
+            # Compare roi depth prediction between local vs global depth
+
+            # evaluate errors between rois -> pred rois vs gt rois
+            masked_err, masked_pix = evaluateMaskedROIRegions(pred_depths, gt_depth_rois)
+            errors[3] += masked_err
+            pixels[3] += masked_pix
+
+            # evaluate errors between rois -> crop rois from pred global vs gt rois
+            masked_err, masked_pix = evaluateMaskedROIRegions(global_depth_rois, gt_depth_rois)
+            errors[4] += masked_err
+            pixels[4] += masked_pix
+
+            # Shift prediction error
+            err_gt_shift = evaluateDepthsTrue(pred_shifts, gt_shifts)
+            errors[5].append(err_gt_shift[:-1])
+            pixels[5].append(err_gt_shift[-1])
+
+            # Replace the locals depths on pred global depth by [predicted masks]
+
+            pred_depths_reshifted = np.zeros([640, 640, n_rois])
+
+            # Find gt local areas, shifted, masked
+            thresh = 0.2
+            for i in range(n_rois):
+                mask = pred_masks[:, :, i]
+                depth = pred_depths[:, :, i].copy()
+                depth_area = depth * mask
+                depth_area += pred_shifts[i]  # gt_shifts
+                pred_depths_reshifted[:, :, i] = depth_area * mask
+
+            full_roi_depths = pred_glob_depth.copy()
+            # resize and replace them on global
+            for j in range(n_rois):
+                i = n_rois - j - 1
+                depth = pred_depths_reshifted[:, :, i] * pred_masks[:, :, i]
+                idx = depth.nonzero()
+                # print(idx.shape)
+                if len(idx) != 0:
+                    full_roi_depths[idx] = depth[idx]
+
+            # Evaluate whole depths
+
+            err_reshifted = evaluateDepthsTrue(full_roi_depths[80:560], gt_depth_whole[80:560], printInfo=False)
+            errors[6].append(err_reshifted[:-1])
+            pixels[6].append(err_reshifted[-1])
+
+            err_global = evaluateDepthsTrue(pred_glob_depth[80:560], gt_depth_whole[80:560], printInfo=False)
+            errors[7].append(err_global[:-1])
+            pixels[7].append(err_global[-1])
+
+            # Evaluate masked regions [pred masks]
+            masked_err, masked_pix = evaluateMaskedRegions(pred_glob_depth[80:560], gt_depth_whole[80:560], pred_masks)
+            errors[8] += masked_err
+            pixels[8] += masked_pix
 
 
-            # Get normal expanded masks
-            detections = detections.data.cpu().numpy()
-            window = (0, 0, 480, 640)
-            image_shape = config.IMAGE_SHAPE
-            mrcnn_mask = mrcnn_mask.permute(0, 1, 3, 4, 2).data.cpu().numpy()
-            mrcnn_depth = mrcnn_depth.permute(0, 1, 3, 4, 2).data.cpu().numpy()
-            final_rois, final_class_ids, final_scores, final_masks, final_depths, final_normals = \
-                model_maskdepth.unmold_detections(config, detections[0], mrcnn_mask[0],
-                                                  mrcnn_depth[0], mrcnn_normal[0], image_shape, window)
+            masked_err, masked_pix = evaluateMaskedRegions(full_roi_depths[80:560], gt_depth_whole[80:560], pred_masks)
+            errors[9] += masked_err
+            pixels[9] += masked_pix
 
-            # Evaluate Pred Masked Regions on Global Depth, predicted masks
-            # final masks = 640x640xROIs
-            masked_err, masked_pix = evaluateMaskedRegions(depth_pred, depth_gt, final_masks)
-            masked_errs += masked_err
-            masked_pixels += masked_pix
+            # Evaluate masked regions [gt masks]
 
-            # Evaluate GT Masked Regions on Global Depth, ground truth masks
-            # Select the nonzero gt masks, depths, rois
             gt_boxes = gt_boxes.data.cpu().numpy()
             gt_class_ids = gt_class_ids.data.cpu().numpy()
             gt_masks = gt_masks.data.cpu().numpy()
@@ -1461,10 +2295,387 @@ def evaluate_true_shift():
             # Expand the masks from 56x56 to 640x640
             expanded_mask = utils.expand_mask(gt_boxes, gt_masks.transpose(1, 2, 0), (640, 640, 3))
 
-            gt_masked_err, gt_masked_pix = evaluateMaskedRegions(depth_pred, depth_gt, expanded_mask)
-            gt_masked_errs += gt_masked_err
-            gt_masked_pixels += gt_masked_pix
+            masked_err, masked_pix = evaluateMaskedRegions(pred_glob_depth[80:560], gt_depth_whole[80:560], expanded_mask)
+            errors[10] += masked_err
+            pixels[10] += masked_pix
 
+            masked_err, masked_pix = evaluateMaskedRegions(full_roi_depths[80:560], gt_depth_whole[80:560], expanded_mask)
+            errors[11] += masked_err
+            pixels[11] += masked_pix
+
+
+            ### Evaluate local+global by GT SHIFT, pred boxes
+            # a. Whole depth
+            # b. Masked regions
+
+            gt_depth_rois = np.zeros([640, 640, n_rois])
+            gt_shifts = np.zeros([n_rois])
+            global_depth_rois = np.zeros([640, 640, n_rois])
+
+            gt_depth_whole = gt_depth[0].cpu().numpy()
+
+            thresh = 0.2
+            for i in range(n_rois):
+                mask = pred_masks[:, :, i]
+                depth_area = gt_depth_whole.copy() * mask
+                if depth_area.sum() == 0:
+                    gt_shifts[i] = 0
+                    gt_depth_rois[:, :, i] = depth_area
+                    break
+                min_val = depth_area[depth_area > thresh].min()
+                gt_shifts[i] = min_val
+                depth_area -= min_val
+                gt_depth_rois[:, :, i] = depth_area * mask
+
+            # Find global depth local areas, shifted, masked
+            for i in range(n_rois):
+                mask = pred_masks[:, :, i]
+                depth_area = pred_glob_depth.copy() * mask
+                depth_area -= gt_shifts[i]
+                global_depth_rois[:, :, i] = depth_area * mask
+
+            pred_depths_reshifted = np.zeros([640, 640, n_rois])
+
+            # Find gt local areas, shifted, masked
+            for i in range(n_rois):
+                mask = pred_masks[:, :, i]
+                depth = pred_depths[:, :, i].copy()
+                depth_area = depth * mask
+                depth_area += gt_shifts[i]  # gt_shifts
+                pred_depths_reshifted[:, :, i] = depth_area * mask
+
+            full_roi_depths = pred_glob_depth.copy()
+            # resize and replace them on global
+            for j in range(n_rois):
+                i = n_rois - j - 1
+                depth = pred_depths_reshifted[:, :, i] * pred_masks[:, :, i]
+                idx = depth.nonzero()
+                # print(idx.shape)
+                if len(idx) != 0:
+                    full_roi_depths[idx] = depth[idx]
+
+            # Evaluate whole depth region
+            err_reshifted = evaluateDepthsTrue(full_roi_depths[80:560], gt_depth_whole[80:560], printInfo=False)
+            errors[12].append(err_reshifted[:-1])
+            pixels[12].append(err_reshifted[-1])
+
+            # Evaluate masked regions [pred masks]
+            masked_err, masked_pix = evaluateMaskedRegions(full_roi_depths[80:560], gt_depth_whole[80:560], pred_masks)
+            errors[13] += masked_err
+            pixels[13] += masked_pix
+
+            # Evaluate masked regions [gt masks]
+            masked_err, masked_pix = evaluateMaskedRegions(full_roi_depths[80:560], gt_depth_whole[80:560],
+                                                           expanded_mask)
+            errors[14] += masked_err
+            pixels[14] += masked_pix
+
+            step += 1
+            if step % 100 == 0:
+                print(" HERE: ", step)
+
+            # Break after 'steps' steps
+            if step == steps - 1:
+                break
+
+
+
+    print("{:>10}, {:>10}, {:>10}, {:>10}, {:>10}, {:>10}, {:>10}, {:>10}".format('rel', 'rel_sqr', 'log_10', 'rmse',
+                                                                                  'rmse_log', 'a1', 'a2', 'a3'))
+    print("\nTraining code : ")
+    print("====== 1. Local depth eval, target vs pred depths: ")
+    calculateTrueErrors(errors[1], pixels[1])
+
+    print("====== 2. Shifts eval, target vs pred shifts: ")
+    calculateTrueErrors(errors[2], pixels[2])
+
+    print("\nDetection code : ")
+    print("====== 3. ROI depths eval: ")
+    calculateTrueErrors(errors[3], pixels[3])
+
+    print("====== 4. ROI depth on global pred depth eval: ")
+    calculateTrueErrors(errors[4], pixels[4])
+
+    print("====== 5. Pred shifts vs GT shifts(calculated): ")
+    calculateTrueErrors(errors[5], pixels[5])
+
+    print("====== 6. Whole depth eval on R + Predshift: ")
+    calculateTrueErrors(errors[6], pixels[6])
+
+    print("====== 7. Whole depth eval on pred global: ")
+    calculateTrueErrors(errors[7], pixels[7])
+
+    print("====== 8. Pred masked eval on R + Predshift: ")
+    calculateTrueErrors(errors[8], pixels[8])
+
+    print("====== 9. Pred masked eval on G: ")
+    calculateTrueErrors(errors[9], pixels[9])
+
+    print("====== 10. GT masked eval on R + Predshift: ")
+    calculateTrueErrors(errors[10], pixels[10])
+
+    print("====== 11. GT masked eval on G: ")
+    calculateTrueErrors(errors[11], pixels[11])
+
+    print("====== 12. Whole depth eval on R + GTshift: ")
+    calculateTrueErrors(errors[12], pixels[12])
+
+    print("====== 13. Pred masked eval on R + GTshift: ")
+    calculateTrueErrors(errors[13], pixels[13])
+
+    print("====== 14. GT masked eval on R + GTshift: ")
+    calculateTrueErrors(errors[14], pixels[14])
+
+
+def evaluate_scale():
+    print("Model evaluation for training set!")
+
+    config = scannet.ScannetConfig()
+
+    dataset_test = scannet.ScannetDataset()
+    dataset_test.load_scannet("test", scannet_data = '../data/SCANNET/')  # change the number of steps as well
+    dataset_test.prepare()
+
+    print("--TEST--")
+    print("Image Count: {}".format(len(dataset_test.image_ids)))
+    print("Class Count: {}".format(dataset_test.num_classes))
+
+    config.PREDICT_DEPTH = True
+    config.PREDICT_GLOBAL_DEPTH = True
+    config.GEOMETRIC_LOSS = False
+    config.GRAD_LOSS = False
+    depth_weight = 1
+    config.USE_MINI_MASK = True
+    config.PREDICT_PLANE = False
+    config.PREDICT_NORMAL = False
+    config.DEPTH_LOSS = 'L1'  # Options: L1, L2, BERHU
+    config.BATCH_SIZE = 1
+    config.MASK_SHAPE = [56, 56]
+    config.MASK_POOL_SIZE = 28
+
+    config.DEPTH_ATTENTION = False
+    config.PREDICT_SHIFT = False
+    config.ATTENTION_GT_MASK = False
+    config.DEPTH_SCALE = True
+
+    model_maskdepth = MaskDepthRCNN(config)
+    model_maskdepth.cuda()
+
+    checkpoint_dir = '../data/checkpoints/scannet20200304T1848/mask_depth_rcnn_scannet_0010.pth'
+    model_maskdepth.load_state_dict(torch.load(checkpoint_dir)['model_state_dict'])
+
+    # test_datagenerator = modellib.data_generator(dataset_test, config, shuffle=False, augment=False, batch_size=1)
+    test_generator = data_generator2(dataset_test, config, shuffle=False, augment=False, batch_size=1,
+                                     augmentation=None)
+
+    step = 0
+    steps = 5436
+    # train = 16830, val = 2635, test = 5436
+
+    errors = {i:[] for i in range(1,15)}
+    pixels = {i:[] for i in range(1,15)}
+
+    with torch.no_grad():
+        while step < steps:
+            inputs = next(test_generator)
+            images = inputs[0]
+            image_metas = inputs[1]
+            rpn_match = inputs[2]
+            rpn_bbox = inputs[3]
+            gt_class_ids = inputs[4]
+            gt_boxes = inputs[5]
+            gt_masks = inputs[6]
+            gt_depths = inputs[7]
+            gt_normals = inputs[8]
+            gt_depth = inputs[9]
+
+            # Wrap in variables
+            images = Variable(images)
+            rpn_match = Variable(rpn_match)
+            rpn_bbox = Variable(rpn_bbox)
+            gt_class_ids = Variable(gt_class_ids)
+            gt_boxes = Variable(gt_boxes)
+            gt_masks = Variable(gt_masks)
+            gt_depths = Variable(gt_depths)
+            gt_normals = Variable(gt_normals)
+            gt_depth = Variable(gt_depth)
+
+            # To GPU
+            if config.GPU_COUNT:
+                images = images.cuda()
+                rpn_match = rpn_match.cuda()
+                rpn_bbox = rpn_bbox.cuda()
+                gt_class_ids = gt_class_ids.cuda()
+                gt_boxes = gt_boxes.cuda()
+                gt_masks = gt_masks.cuda()
+                gt_depths = gt_depths.cuda()
+                gt_normals = gt_normals.cuda()
+                gt_depth = gt_depth.cuda()
+
+            rpn_class_logits, rpn_pred_bbox, target_class_ids, mrcnn_class_logits, target_deltas, mrcnn_bbox, target_mask, mrcnn_mask, rois, target_depths, mrcnn_depths, target_normal, mrcnn_normal, global_depth, n_dets_per_sample, target_shift, mrcnn_shift = \
+                model_maskdepth.predict([images, image_metas, gt_class_ids, gt_boxes, gt_masks, gt_depths, gt_normals],
+                                        mode='training')
+
+            ### Evaluate Local Depths
+            # select nonzero values, class ids
+            positive_ix = torch.nonzero(target_class_ids[0] > 0)[:, 0]
+            positive_class_ids = target_class_ids[0, positive_ix.data].long()
+            indices = torch.stack((positive_ix, positive_class_ids), dim=1)
+
+            ## Gather the depths (predicted and true) that contribute to loss
+            target_depths = target_depths.cpu().numpy()
+            mrcnn_depths = mrcnn_depths.cpu().numpy()
+
+            true_depth = target_depths[0, indices[:, 0].data, :, :]
+            pred_depth = mrcnn_depths[0, indices[:, 0].data, indices[:, 1].data, :, :]
+
+            ### Evaluate roi depths
+            roi_err, roi_pix = evaluateRoiDepths(pred_depth, true_depth)
+            errors[1] += roi_err
+            pixels[1] += roi_pix
+
+            ### Evaluate local+global by predicted SHIFT, pred boxes
+            # We need the unnormalized box coordinates for that, which comes from inference code.
+
+            imgs = images.permute(0, 2, 3, 1)
+
+            results = model_maskdepth.detect(imgs, mold_image=False, image_metas=image_metas)
+            r = results[0]
+
+            pred_boxes = r['rois']
+            pred_masks = r['masks']
+            pred_scores = r['scores']
+            pred_depths = r['depths']
+            pred_glob_depth = r['glob_depth']
+            pred_class_ids = r['class_ids']
+            pred_shifts = r['shifts']
+
+
+            exclude_ix = []
+            for i in range(pred_boxes.shape[0]):
+                if pred_masks[:, :, i].sum() == 0:
+                    exclude_ix.append(i)
+
+            if len(exclude_ix) > 0:
+                pred_boxes = np.delete(pred_boxes, exclude_ix, axis=0)
+                pred_class_ids = np.delete(pred_class_ids, exclude_ix, axis=0)
+                pred_shifts = np.delete(pred_shifts, exclude_ix, axis=0)
+                pred_scores = np.delete(pred_scores, exclude_ix, axis=0)
+                pred_masks = np.delete(pred_masks, exclude_ix, axis=2)
+                pred_depths = np.delete(pred_depths, exclude_ix, axis=2)
+
+            n_rois = pred_class_ids.shape[0]
+
+            ### Evaluate roi depths
+
+            # Extract the same regions on gt_depth and pred global depth, mask them.
+            # Scale them to small size.
+            # Pred shift and pred mask used.
+
+            if pred_depths.shape[0] == 0: # Resolve the bug
+                continue
+
+            mini_shape = 56
+            gt_depth_rois = np.zeros([640, 640, n_rois])
+            gt_shifts = np.zeros([n_rois])
+            global_depth_rois = np.zeros([640, 640, n_rois])
+            gt_depth_whole = gt_depth[0].cpu().numpy()
+
+            for i in range(n_rois):
+                mask = pred_masks[:, :, i]
+                depth_area = gt_depth_whole.copy() * mask
+                if depth_area.sum() == 0:
+                    gt_depth_rois[:, :, i] = depth_area
+                    break
+                y1, x1, y2, x2 = pred_boxes[i][:4]
+                # print("y : ", y1, x1, y2, x2)
+                delta = np.sqrt(np.power(x2 - x1, 2) + np.power(y2 - y1, 2))
+                delta = int(delta * 640)  # because it was normalized coordinate
+                depth_area = depth_area * (delta / mini_shape)
+                gt_depth_rois[:, :, i] = depth_area * mask
+
+            for i in range(n_rois):
+                mask = pred_masks[:, :, i]
+                depth_area = pred_glob_depth.copy() * mask
+                y1, x1, y2, x2 = pred_boxes[i][:4]
+                delta = np.sqrt(np.power(x2 - x1, 2) + np.power(y2 - y1, 2))
+                delta = int(delta * 640)  # because it was normalized coordinate
+                depth_area = depth_area * (delta / mini_shape)
+                global_depth_rois[:, :, i] = depth_area * mask
+
+            # print("Pred, globa, gt rois: ", pred_depths.shape, global_depth_rois.shape, gt_depth_rois.shape)
+            # Compare roi depth prediction between local vs global depth
+
+            # evaluate errors between rois -> pred rois vs gt rois
+            masked_err, masked_pix = evaluateMaskedROIRegions(pred_depths, gt_depth_rois)
+            errors[2] += masked_err
+            pixels[2] += masked_pix
+
+            # evaluate errors between rois -> crop rois from pred global vs gt rois
+            masked_err, masked_pix = evaluateMaskedROIRegions(global_depth_rois, gt_depth_rois)
+            errors[3] += masked_err
+            pixels[3] += masked_pix
+
+            # Replace the locals depths on pred global depth by [predicted masks]
+
+            pred_depths_rescaled = np.zeros([640, 640, n_rois])
+
+            # Find gt local areas, shifted, masked
+            n_rois = pred_scores.shape[0]
+            for i in range(n_rois):
+                y1, x1, y2, x2 = pred_boxes[i]
+                # delta = max(y2 - y1, x2 - x1)
+                # delta = x2-x1
+                delta = np.sqrt(np.power(x2 - x1, 2) + np.power(y2 - y1, 2))
+                pred_depths_rescaled[:, :, i] = pred_depths[:, :, i] * (mini_shape / delta)
+
+            full_roi_depths = pred_glob_depth.copy()
+            # resize and replace them on global
+            for j in range(n_rois):
+                i = n_rois - j - 1
+                depth = pred_depths_rescaled[:, :, i] * pred_masks[:, :, i]
+                idx = depth.nonzero()
+                # print(idx.shape)
+                if len(idx) != 0:
+                    full_roi_depths[idx] = depth[idx]
+
+            # Evaluate whole depths
+
+            err_reshifted = evaluateDepthsTrue(full_roi_depths[80:560], gt_depth_whole[80:560], printInfo=False)
+            errors[4].append(err_reshifted[:-1])
+            pixels[4].append(err_reshifted[-1])
+
+            err_global = evaluateDepthsTrue(pred_glob_depth[80:560], gt_depth_whole[80:560], printInfo=False)
+            errors[5].append(err_global[:-1])
+            pixels[5].append(err_global[-1])
+
+            # Evaluate masked regions [pred masks]
+            masked_err, masked_pix = evaluateMaskedRegions(full_roi_depths[80:560], gt_depth_whole[80:560], pred_masks)
+            errors[6] += masked_err
+            pixels[6] += masked_pix
+
+
+            masked_err, masked_pix = evaluateMaskedRegions(pred_glob_depth[80:560], gt_depth_whole[80:560], pred_masks)
+            errors[7] += masked_err
+            pixels[7] += masked_pix
+
+            # Evaluate masked regions [gt masks]
+
+            gt_boxes = gt_boxes.data.cpu().numpy()
+            gt_class_ids = gt_class_ids.data.cpu().numpy()
+            gt_masks = gt_masks.data.cpu().numpy()
+            gt_boxes = trim_zeros(gt_boxes[0])
+            gt_masks = gt_masks[0, :gt_boxes.shape[0], :, :]
+            # Expand the masks from 56x56 to 640x640
+            expanded_mask = utils.expand_mask(gt_boxes, gt_masks.transpose(1, 2, 0), (640, 640, 3))
+
+            masked_err, masked_pix = evaluateMaskedRegions(pred_glob_depth[80:560], gt_depth_whole[80:560], expanded_mask)
+            errors[8] += masked_err
+            pixels[8] += masked_pix
+
+            masked_err, masked_pix = evaluateMaskedRegions(full_roi_depths[80:560], gt_depth_whole[80:560], expanded_mask)
+            errors[9] += masked_err
+            pixels[9] += masked_pix
 
 
             step += 1
@@ -1474,6 +2685,40 @@ def evaluate_true_shift():
             # Break after 'steps' steps
             if step == steps - 1:
                 break
+
+
+
+    print("{:>10}, {:>10}, {:>10}, {:>10}, {:>10}, {:>10}, {:>10}, {:>10}".format('rel', 'rel_sqr', 'log_10', 'rmse',
+                                                                                  'rmse_log', 'a1', 'a2', 'a3'))
+    print("\nTraining code : ")
+    print("====== 1. Local depth eval, target vs pred depths: ")
+    calculateTrueErrors(errors[1], pixels[1])
+
+
+    print("\nDetection code : ")
+    print("====== 2. ROI depths eval: ")
+    calculateTrueErrors(errors[2], pixels[2])
+
+    print("====== 3. ROI depth from global pred depth eval: ")
+    calculateTrueErrors(errors[3], pixels[3])
+
+    print("====== 4. Whole depth eval on rescaled R + Predshift: ")
+    calculateTrueErrors(errors[4], pixels[4])
+
+    print("====== 5. Whole depth eval on pred global G: ")
+    calculateTrueErrors(errors[5], pixels[5])
+
+    print("====== 6. Pred masked eval on rescaled R + Predshift: ")
+    calculateTrueErrors(errors[6], pixels[6])
+
+    print("====== 7. Pred masked eval on G: ")
+    calculateTrueErrors(errors[7], pixels[7])
+
+    print("====== 8. GT masked eval on rescaled R + Predshift: ")
+    calculateTrueErrors(errors[8], pixels[8])
+
+    print("====== 9. GT masked eval on G: ")
+    calculateTrueErrors(errors[9], pixels[9])
 
 
 def count_objectregions():
@@ -1709,14 +2954,22 @@ if __name__ == '__main__':
 
         #evaluate_roiregions()
 
+        #train_roidepth_scale(augmentation)
+
+        #train_maskrcnn(augmentation)
+
+        evaluate_scale()
+
         #train_roidepth(augmentation)
 
         #evaluate_true_attention()
 
         #evaluate_true_roiregions()
-        #evaluate_true_shift()
 
-        count_objectregions()
+        #evaluate_true_shift()
+        #train_roidepth_base(augmentation)
+
+        #count_objectregions()
         #train_roidepth(augmentation)
         #train_solodepth(augmentation)
 
