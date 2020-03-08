@@ -8,14 +8,6 @@
       <change afterPath="$PROJECT_DIR$/../../../Workspaces/competitive_python/leetcode/cvpr_stats.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/../NYU_depth_v2_extractor/helper.py" beforeDir="false" afterPath="$PROJECT_DIR$/../NYU_depth_v2_extractor/helper.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/../NYU_depth_v2_extractor/sketch.py" beforeDir="false" afterPath="$PROJECT_DIR$/../NYU_depth_v2_extractor/sketch.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/evaluate_utils.py" beforeDir="false" afterPath="$PROJECT_DIR$/evaluate_utils.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/generate_pointcloud.py" beforeDir="false" afterPath="$PROJECT_DIR$/generate_pointcloud.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/models/model_maskdepthrcnn.py" beforeDir="false" afterPath="$PROJECT_DIR$/models/model_maskdepthrcnn.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/train_nyu.py" beforeDir="false" afterPath="$PROJECT_DIR$/train_nyu.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/train_scannet.py" beforeDir="false" afterPath="$PROJECT_DIR$/train_scannet.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/utils.py" beforeDir="false" afterPath="$PROJECT_DIR$/utils.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/visualize_utils.py" beforeDir="false" afterPath="$PROJECT_DIR$/visualize_utils.py" afterDir="false" />
     </list>
     <option name="EXCLUDED_CONVERTED_TO_IGNORED" value="true" />
     <option name="SHOW_DIALOG" value="false" />
@@ -2146,7 +2138,7 @@
       <workItem from="1578912838921" duration="128661000" />
       <workItem from="1580397978554" duration="78131000" />
       <workItem from="1582018908108" duration="88401000" />
-      <workItem from="1583141808840" duration="39866000" />
+      <workItem from="1583141808840" duration="40201000" />
     </task>
     <task id="LOCAL-00001" summary="Model modified for depth prediction.">
       <created>1562099528257</created>
@@ -2187,7 +2179,7 @@
     </history-entry>
   </component>
   <component name="TimeTrackingManager">
-    <option name="totallyTimeSpent" value="1184220000" />
+    <option name="totallyTimeSpent" value="1184555000" />
   </component>
   <component name="TodoView">
     <todo-panel id="selected-file">

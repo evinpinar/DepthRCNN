@@ -1,8 +1,8 @@
 [![License CC BY-NC-SA 4.0](https://img.shields.io/badge/License-CC%20BY--NC--SA%204.0-blue.svg)](https://creativecommons.org/licenses/by-nc-sa/4.0/legalcode)
 ![Python 3.7](https://img.shields.io/badge/python-3.7-green.svg)
-# Depth Prediction from MaskRCNN
+# Object-wise Single Image Depth Prediction with Mask R-CNN
 
-This repository is forked from PlaneRCNN and has being modified for own purposes. 
+This code is written in the duration of a master's thesis, which is about adding a depth prediction branch to Mask R-CNN in order to have better occlusion boundaries and local details. Thesis manuscript will be available soon. 
 
 
 ------------
@@ -13,7 +13,7 @@ This repository is forked from PlaneRCNN and has being modified for own purposes
 ## Getting Started 
 Clone repository: 
 ```
-git clone https://github.com/NVlabs/depthrcnn.git
+git clone https://github.com/evinpinar/depthrcnn.git
 ```
 
 Please use Python 3. Create an [Anaconda](https://www.anaconda.com/distribution/) environment and install the dependencies:
@@ -61,11 +61,12 @@ Please note that, the Mask R-CNN backbone does not support cuda10.0 and gcc vers
 
 
 
-
 ## Acknowledgement
-Our implementation uses the nms/roialign from the Mask R-CNN implementation from [pytorch-mask-rcnn](https://github.com/multimodallearning/pytorch-mask-rcnn), which is licensed under [MIT License](https://github.com/multimodallearning/pytorch-mask-rcnn/blob/master/LICENSE)
+
+This repository is forked from ![PlaneRCNN](https://github.com/NVlabs/planercnn) and has being modified for noncommercial Master's Thesis research, which is also publicly released.
+
+Implementation uses the nms/roialign from the Mask R-CNN implementation from [pytorch-mask-rcnn](https://github.com/multimodallearning/pytorch-mask-rcnn), which is licensed under [MIT License](https://github.com/multimodallearning/pytorch-mask-rcnn/blob/master/LICENSE)
 
 ### License ###
-Copyright (c) 2018 NVIDIA Corp.  All Rights Reserved.
 This work is licensed under the [Creative Commons Attribution NonCommercial ShareAlike 4.0 License](https://creativecommons.org/licenses/by-nc-sa/4.0/legalcode).
 
